@@ -29,19 +29,21 @@ the existing New Vegas multiplayer mod by the NV:MP team, can run alongside. We 
 
 After these ten steps the whole game plays in co-op: story, enemies, combat, loot and the world, for 2 to 4 players.
 A step marked **Claimed** is being worked on right now. Want to take one? Open an issue and it gets claimed for you.
+Who: Track A is the sync core (the maintainer). Track B is in-game testing, split-screen and real-time VATS (a contributor,
+see [docs/CONTRIBUTING-HANDOFF.md](docs/CONTRIBUTING-HANDOFF.md)). What Track B works on now and next is in the [Track B status issue](../../issues/17).
 
-| # | Step | What it means when you play | Status |
-|---|---|---|---|
-| 1 | Enemy and NPC sync | One PC runs each enemy's AI and everyone sees a smooth copy. Hits count once, deaths happen once, encounters spawn once, and enemy attacks, flinches and death poses look right on every screen. | **Claimed**: code written, finishing |
-| 2 | Enemy sync in the real game | The two-copy fight, ownership handoff, spawn and corpse-loot tests pass on a real PC, and the feature is switched on by default. | Next |
-| 3 | Player avatars | You see your friends as characters that walk, run, aim and animate, without needing NV:MP. | **Claimed**: finishing the code |
-| 4 | Full combat | Real-time VATS for every player, projectiles and explosions, companions in fights, crime and faction hostility. | **Claimed**: combat and real-time VATS being written |
-| 5 | Loot, items and containers | Shared containers and corpses, item drops and pickups, and no duplicated items. | **Claimed**: being written |
-| 6 | World, time and travel | Doors, terminals, switches and traps; time and weather; fast travel, waiting and sleeping by party vote; saving and rejoining. | **Claimed**: finishing the code |
-| 7 | Desync check and repair | Every area checks itself every few seconds and fixes any difference it finds. | **Claimed**: extending to enemies, loot and the world |
-| 8 | The whole main story in game | Every main questline swept stage by stage with two game copies, from Goodsprings to the endings. | **Claimed**: closing script gaps and writing sweeps for every questline (Goodsprings: 65 of 104 stages pass) |
-| 9 | Every side quest and DLC | All side quests, companions and the four DLCs, played through by two-copy test bots. | **Claimed**: sweeps and test bots being written |
-| 10 | Player release 1.0 | Installer, one-click host and join, split-screen on one PC, player guide. | **Claimed**: installer, launcher, split-screen and player guide being written |
+| # | Step | What it means when you play | Who | Status |
+|---|---|---|---|---|
+| 1 | Enemy and NPC sync | One PC runs each enemy's AI and everyone sees a smooth copy. Hits count once, deaths happen once, encounters spawn once, and enemy attacks, flinches and death poses look right on every screen. | A | **Claimed**: code written, finishing |
+| 2 | Enemy sync in the real game | The two-copy fight, ownership handoff, spawn and corpse-loot tests pass on a real PC, and the feature is switched on by default. | B, then A fixes | Next |
+| 3 | Player avatars | You see your friends as characters that walk, run, aim and animate, without needing NV:MP. | A, B tests | **Claimed**: finishing the code |
+| 4 | Full combat | Real-time VATS for every player, projectiles and explosions, companions in fights, crime and faction hostility. | A and B | **Claimed**: combat and real-time VATS being written |
+| 5 | Loot, items and containers | Shared containers and corpses, item drops and pickups, and no duplicated items. | A | **Claimed**: being written |
+| 6 | World, time and travel | Doors, terminals, switches and traps; time and weather; fast travel, waiting and sleeping by party vote; saving and rejoining. | A | **Claimed**: finishing the code |
+| 7 | Desync check and repair | Every area checks itself every few seconds and fixes any difference it finds. | A | **Claimed**: extending to enemies, loot and the world |
+| 8 | The whole main story in game | Every main questline swept stage by stage with two game copies, from Goodsprings to the endings. | A and B | **Claimed**: closing script gaps and writing sweeps for every questline (Goodsprings: 65 of 104 stages pass) |
+| 9 | Every side quest and DLC | All side quests, companions and the four DLCs, played through by two-copy test bots. | A and B | **Claimed**: sweeps and test bots being written |
+| 10 | Player release 1.0 | Installer, one-click host and join, split-screen on one PC, player guide. | A and B | **Claimed**: installer, launcher, split-screen and player guide being written |
 
 ## Play in three steps
 
