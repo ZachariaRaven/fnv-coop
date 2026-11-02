@@ -148,7 +148,9 @@ A guest's `run` lines normally go to the host. Two prefixes change that (both in
   `stage` (`"QUEST N"`; `--stage`, or `--run-at at "SetStage QUEST N"`), `talk`, `choose` (list), `say`
   (startup flags, no `at`), `key` (needs `at`; `{"at": 3, "key": "w:2"}` becomes `--key-at 3 w:2`: a key or mouse
   button held that many seconds, `KEY[:HOLD]`; real input, so add `"extra_args": ["--walk"]` to walk).
-* **Timeline.** Both peers ready, then `duration_s` seconds of chaos and script time, then the relay
+* **Timeline.** Both peers ready (the runner then writes each peer's `--coop-go-file`, and every
+  viewer starts its script clock at that moment, so `at` times count from the same instant), then
+  `duration_s` seconds of chaos and script time, then the relay
   switches to `perfect` (`chaos_s` overrides when), then `settle_s` seconds of quiet, then the quit request.
   The final state dump is compared only after that quiet window.
 * `outages` cut the relay for a while (`both`, `g2h` guest to host, `h2g`), seconds after the first guest datagram.

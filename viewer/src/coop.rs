@@ -83,6 +83,10 @@ pub struct Run {
     cell: String,
     state_dump: Option<PathBuf>,
     quit_file: Option<PathBuf>,
+    /// `--coop-go-file`: the script clock waits for this file.
+    go_file: Option<PathBuf>,
+    /// The session logged Ready (the script clock may still wait for `go_file`).
+    ready_seen: bool,
     quit_after: Option<f32>,
     show_text: bool,
     seq: u64,
@@ -345,6 +349,8 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
         cell: args.cell.clone(),
         state_dump: c.state_dump.clone(),
         quit_file: c.quit_file.clone(),
+        go_file: c.go_file.clone(),
+        ready_seen: false,
         quit_after: c.quit_after,
         show_text: false,
         seq: 0,
@@ -511,6 +517,7 @@ pub(crate) fn dump_text(
     let root = Session::state_root(state);
     let mut counters = live.counters.clone();
     counters.start = Some(s.start_info());
+    counters.status = Some(s.status());
     coop_session::dump::state_json_full(
         state,
         &game.0.order,
@@ -611,32 +618,39 @@ pub(crate) fn send(
             }
         }
         if ev == CoopEvent::Ready {
-            run.ready_at = Some(now);
-            held.released = Some(now);
-            split_special(&mut held, &mut bot, now);
-            start_commands.0.extend(std::mem::take(&mut held.local));
-            later.lines.extend(std::mem::take(&mut held.local_at));
+            run.ready_seen = true;
+        }
+    }
+    // The script clock starts at the session's Ready. With `--coop-go-file` it
+    // waits for that file too: the harness writes it when every peer is ready,
+    // so a host does not act while a guest still loads the host's place.
+    let go = run.go_file.as_deref().map_or(true, Path::exists);
+    if run.ready_seen && run.ready_at.is_none() && go {
+        run.ready_at = Some(now);
+        held.released = Some(now);
+        split_special(&mut held, &mut bot, now);
+        start_commands.0.extend(std::mem::take(&mut held.local));
+        later.lines.extend(std::mem::take(&mut held.local_at));
+        later.ready_at = Some(now);
+        if run.role == Role::Host {
+            if let Some(stage) = held.stage.take() {
+                log_script(s, &format!("SetStage {} {}", stage.0, stage.1));
+                start_stage.0 = Some(stage);
+            }
+            for l in std::mem::take(&mut held.run) {
+                log_script(s, &l);
+                start_commands.0.push(l);
+            }
+            later.lines.extend(std::mem::take(&mut held.run_at));
             later.ready_at = Some(now);
-            if run.role == Role::Host {
-                if let Some(stage) = held.stage.take() {
-                    log_script(s, &format!("SetStage {} {}", stage.0, stage.1));
-                    start_stage.0 = Some(stage);
-                }
-                for l in std::mem::take(&mut held.run) {
-                    log_script(s, &l);
-                    start_commands.0.push(l);
-                }
-                later.lines.extend(std::mem::take(&mut held.run_at));
-                later.ready_at = Some(now);
-            } else {
-                if let Some((q, n)) = held.stage.take() {
-                    log_script(s, &format!("SetStage {q} {n}"));
-                    s.send_command(Command::Stage(q, n));
-                }
-                for l in std::mem::take(&mut held.run) {
-                    log_script(s, &l);
-                    s.send_command(Command::Line(l));
-                }
+        } else {
+            if let Some((q, n)) = held.stage.take() {
+                log_script(s, &format!("SetStage {q} {n}"));
+                s.send_command(Command::Stage(q, n));
+            }
+            for l in std::mem::take(&mut held.run) {
+                log_script(s, &l);
+                s.send_command(Command::Line(l));
             }
         }
     }

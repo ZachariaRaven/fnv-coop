@@ -142,7 +142,8 @@ def judge(scn, run):
         else:
             from chaos_relay import PROFILES
             prof = PROFILES.get(scn["network"])
-            n = g["in"] + h["in"]
+            # only the datagrams that met the scenario's profile (the settle window is perfect)
+            n = g.get("chaos_in", g["in"]) + h.get("chaos_in", h["in"])
             did = sum(d.get(k, 0) for d in (g, h) for k in ("dropped", "duplicated", "reordered"))
             if prof and prof.loss > 0 and n * prof.loss >= 8 and did == 0:
                 fail("hollow", "profile %s should have dropped about %d of %d datagrams, relay changed none"

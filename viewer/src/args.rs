@@ -318,6 +318,7 @@ nv-viewer co-op flags (docs/COOP.md)
   --coop-state-dump FILE   shared-state JSON once a second (has the start.phase object)
   --coop-net PROFILE       test: delay and lose packets
   --coop-quit-file FILE    quit cleanly when the file appears
+  --coop-go-file FILE      start the scripts when the file appears (after the session is ready)
   --coop-quit-after SEC    quit cleanly this long after the session is ready
   --coop-load FILE         host: start from this nv-rs save (the launcher's Continue);
                            guest: take only your character from it
@@ -375,6 +376,8 @@ pub struct CoopArgs {
     pub control: Option<u16>,
     /// `--coop-quit-file`.
     pub quit_file: Option<PathBuf>,
+    /// `--coop-go-file`: scripts start when this file appears (after Ready).
+    pub go_file: Option<PathBuf>,
     /// `--coop-quit-after`: seconds after the session is ready.
     pub quit_after: Option<f32>,
     /// `--coop-steam`: Steam (Spacewar) transport instead of UDP.
@@ -809,6 +812,7 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
                 );
             }
             "--coop-quit-file" => coop.quit_file = Some(value("--coop-quit-file")?.into()),
+            "--coop-go-file" => coop.go_file = Some(value("--coop-go-file")?.into()),
             "--coop-quit-after" => {
                 let v = value("--coop-quit-after")?;
                 coop.quit_after = Some(
@@ -1009,6 +1013,7 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
             || coop.state_dump.is_some()
             || coop.net.is_some()
             || coop.quit_file.is_some()
+            || coop.go_file.is_some()
             || coop.control.is_some()
             || coop.quit_after.is_some()
             || coop.steam

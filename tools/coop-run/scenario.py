@@ -228,6 +228,9 @@ def viewer_args(s, role, data, ports, files, quit_after, background=True, screen
     args.append("--coop-test-token")
     args += ["--coop-log", files["log"], "--coop-state-dump", files["state"],
              "--coop-quit-file", files["quit"], "--coop-quit-after", _num(quit_after)]
+    if files.get("go"):
+        # the script clock starts when the runner writes this file (every peer is ready)
+        args += ["--coop-go-file", files["go"]]
     return args
 
 

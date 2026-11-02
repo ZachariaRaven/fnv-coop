@@ -156,7 +156,8 @@ def run_scenario(scn, cfg, run_dir, seed=None, scn_path="", cfg_path="", slot=0,
         rp = free_udp_port(nxt)
         relay_ports.append(rp)
         nxt = rp + 1
-    files = {r: {"log": f(r + ".jsonl"), "state": f(r + ".state.json"), "quit": f(r + ".quit")} for r in roles}
+    files = {r: {"log": f(r + ".jsonl"), "state": f(r + ".state.json"), "quit": f(r + ".quit"),
+                 "go": f(r + ".go")} for r in roles}
     run = {"run_id": os.path.basename(run_dir), "seed": seed, "rerun": rerun_hint(scn_path, cfg_path, seed),
            "relay": None, "timed_out_run": False, "harness_error": None}
     for r in roles:
@@ -219,6 +220,9 @@ def run_scenario(scn, cfg, run_dir, seed=None, scn_path="", cfg_path="", slot=0,
             both_ready = both_ready and ready_all()
         if both_ready:
             log("all %d peers ready; running %.0f s + %.0f s settle" % (len(roles), scn["duration_s"], scn["settle_s"]))
+            # script time starts now on every peer (README "Timeline")
+            for r in roles:
+                _touch(files[r]["go"])
             end = min(time.monotonic() + script_end, deadline)
             _wait(lambda: not all_alive(), max(0, end - time.monotonic()))
             if time.monotonic() >= deadline:
