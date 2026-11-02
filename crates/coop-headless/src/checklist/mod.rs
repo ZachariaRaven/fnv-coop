@@ -18,6 +18,9 @@
 pub mod builtin;
 pub mod report;
 pub mod run;
+pub mod units_harness;
+pub mod units_net;
+pub mod units_sim;
 
 use serde::Deserialize;
 use std::path::{Path, PathBuf};

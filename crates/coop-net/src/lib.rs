@@ -16,6 +16,8 @@
 //! * [`udp`]: LAN, direct IP and CI backend with its own reliable-ordered channel.
 //! * `steam` (cargo feature `steam`, off by default): Steam Spacewar lobbies
 //!   and ISteamNetworkingMessages through a runtime-loaded `steam_api64.dll`.
+//!   The feature `steam-mock` compiles only the DLL-free part (the `SteamApi`
+//!   trait, `MockSteam` and `SteamBackend`) for test rigs.
 //! * [`join`]: copy/paste join codes.
 //!
 //! # Extension point: iroh / QUIC
@@ -45,7 +47,7 @@ pub mod liveness;
 pub mod mem;
 pub mod udp;
 
-#[cfg(feature = "steam")]
+#[cfg(feature = "steam-mock")]
 pub mod steam;
 
 pub use backend::{Backend, BackendError, BackendEvent, Lane, PeerKey, Readiness};

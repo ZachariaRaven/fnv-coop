@@ -101,12 +101,14 @@ fn manifest_covers_every_area_the_owner_listed() {
 
 #[test]
 fn builtin_checks_pass_and_their_twins_fail() {
-    let env = Env {
-        data: None,
-        peers: 3,
-        net: "bad_wifi",
-        seed: 7,
-    };
+    // checks that read the game data run only when it is on this machine
+    const NEEDS_DATA: &[&str] = &[
+        "harness_verdicts",
+        "harness_sim_deterministic",
+        "backend_engine_stub",
+    ];
+    let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    let d = data();
     for (name, f) in registry() {
         if [
             "policy_ids_resolve",
@@ -117,6 +119,16 @@ fn builtin_checks_pass_and_their_twins_fail() {
         {
             continue;
         }
+        let needs = NEEDS_DATA.contains(&name);
+        if needs && d.is_none() {
+            continue;
+        }
+        let env = Env {
+            data: if needs { d.as_deref() } else { None },
+            peers: 3,
+            net: "bad_wifi",
+            seed: 7,
+        };
         if let Err(e) = f(&env, false) {
             panic!("{name} failed: {e}");
         }

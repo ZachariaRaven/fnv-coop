@@ -212,6 +212,11 @@ fn needs_ok(needs: &str, d: Option<&Data>) -> Result<(), String> {
 }
 
 /// Last real-game verdict per scenario from `tools/coop-run` output folders.
+/// `--backend engine`: a world-bound row is PENDING, the engine backend runs nothing yet.
+pub fn engine_gate(engine: bool, row_backend: &str) -> Option<String> {
+    (engine && row_backend == "world").then(|| "engine backend".to_string())
+}
+
 pub fn read_real(dir: &Path) -> BTreeMap<String, (String, bool)> {
     fn walk(d: &Path, depth: u32, out: &mut Vec<PathBuf>) {
         let Ok(rd) = std::fs::read_dir(d) else { return };
@@ -560,8 +565,8 @@ pub fn run(opts: &Opts) -> Result<Report, String> {
         let mut rs: Vec<T> = Vec::new();
         if row.tests.is_empty() {
             rs.push(T::Pending("no test yet".into()));
-        } else if engine && row.backend == "world" {
-            rs.push(T::Pending("engine backend".into()));
+        } else if let Some(why) = engine_gate(engine, &row.backend) {
+            rs.push(T::Pending(why));
         } else if let Err(why) = needs_ok(&row.needs, data.as_deref()) {
             rs.push(T::Skip(why));
         } else {

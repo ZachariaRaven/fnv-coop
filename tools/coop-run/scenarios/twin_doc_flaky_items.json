@@ -1,0 +1,17 @@
+{
+  "name": "twin_doc_flaky_items",
+  "description": "MUTATION TWIN of doc_flaky_items: nobody adds any stimpaks, so the exact counts cannot hold. Marked expect_fail, so the runner reports PASS (class twin) only when an assertion fails.",
+  "cell": "GSDocMitchellHouse",
+  "network": "flaky",
+  "seed": 41,
+  "duration_s": 20,
+  "settle_s": 8,
+  "max_repairs": 10,
+  "host": { "script": [] },
+  "guest": { "script": [] },
+  "expect": [
+    { "id": "host-stim", "path": "items.host.Stimpak", "op": "eq", "value": 3, "on": "both" },
+    { "id": "guest-stim", "path": "items.guest.Stimpak", "op": "eq", "value": 4, "on": "both" }
+  ],
+  "expect_fail": true
+}

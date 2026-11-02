@@ -68,10 +68,16 @@ fn fnv(bytes: &[u8]) -> u64 {
     })
 }
 
+/// The viewer flag that makes a guest skip its character making.
+const NO_CHARGEN: &str = "--coop-no-chargen";
+
 /// A reason this scenario cannot run on this data (never guessed around).
 pub fn needs_assets(scn: &Scenario, d: &Data) -> Option<String> {
     for side in [&scn.host, &scn.guest] {
-        if let Some(a) = side.extra_args.iter().find(|a| a.as_str() != "--walk") {
+        // modelled flags: `--walk`, and a guest's `--coop-no-chargen` (see `build_peers`)
+        let modelled =
+            |a: &str| a == "--walk" || (a == NO_CHARGEN && std::ptr::eq(side, &scn.guest));
+        if let Some(a) = side.extra_args.iter().find(|a| !modelled(a.as_str())) {
             return Some(format!("viewer flag {a} has no headless model"));
         }
     }
@@ -209,7 +215,10 @@ fn build_peers(
         new_game: scn.new_game,
         ..Default::default()
     });
-    let own = if scn.new_game || scn.character_creation {
+    // the viewer's `--coop-no-chargen` (test harness only): the guest skips making its character
+    let own = if scn.guest.extra_args.iter().any(|a| a == NO_CHARGEN) {
+        coop_session::OwnCharacter::Skip
+    } else if scn.new_game || scn.character_creation {
         coop_session::OwnCharacter::Create
     } else {
         coop_session::OwnCharacter::Skip

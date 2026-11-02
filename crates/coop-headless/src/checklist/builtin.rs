@@ -38,7 +38,7 @@ pub type Check = fn(&Env, bool) -> Result<String, String>;
 
 /// Every check by name.
 pub fn registry() -> Vec<(&'static str, Check)> {
-    vec![
+    let own: Vec<(&'static str, Check)> = vec![
         ("core_join", core_join),
         ("core_delta_stream", core_delta_stream),
         ("core_rejoin", core_rejoin),
@@ -60,7 +60,12 @@ pub fn registry() -> Vec<(&'static str, Check)> {
         ("policy_every_row_has_a_rule", policy_every_row_has_a_rule),
         ("scale_four_peer_budget", scale_four_peer_budget),
         ("story_probe_detects_mutation", story_probe_detects_mutation),
-    ]
+    ];
+    own.into_iter()
+        .chain(super::units_net::registry())
+        .chain(super::units_sim::registry())
+        .chain(super::units_harness::registry())
+        .collect()
 }
 
 fn profile(env: &Env) -> Result<ChaosProfile, String> {
