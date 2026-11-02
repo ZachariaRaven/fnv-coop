@@ -146,7 +146,9 @@ fn player_side(f: FormId) -> bool {
 /// Damage after the party scaling: players hit enemies for less, enemies hit
 /// players for more.
 pub fn scaled_damage(state: &GameState, who: FormId, by: FormId, amount: f64) -> f64 {
-    let Some(s) = state.coop.live.scaling else { return amount };
+    let Some(s) = state.coop.live.scaling else {
+        return amount;
+    };
     if who != PLAYER_REF && player_side(by) {
         amount / f64::from(s.toughness)
     } else if who == PLAYER_REF && !player_side(by) {
@@ -190,14 +192,22 @@ pub(crate) fn hurt_hooked(
         return amount > 0.0 && crate::combat::hurt_core(order, state, who, amount, by);
     }
     if state.coop.authority == Authority::Guest {
-        state.coop.live.pending_hits.push(PendingHit { who, amount, by });
+        state
+            .coop
+            .live
+            .pending_hits
+            .push(PendingHit { who, amount, by });
         return false;
     }
     let before = state.damage.get(&who).copied().unwrap_or(0.0);
     let killed = crate::combat::hurt_core(order, state, who, amount, by);
     let dealt = state.damage.get(&who).copied().unwrap_or(0.0) - before;
     if dealt > 0.0 {
-        state.coop.live.hurts.push(HurtRecord { who, amount: dealt, by });
+        state.coop.live.hurts.push(HurtRecord {
+            who,
+            amount: dealt,
+            by,
+        });
     }
     killed
 }

@@ -2,6 +2,7 @@
 
 use std::collections::BTreeMap;
 
+use super::live::HostLive;
 use crate::authority::AuthorityTable;
 use crate::baseline::{BaselineRing, SendPlan};
 use crate::chunk;
@@ -9,11 +10,10 @@ use crate::delta::StateStore;
 use crate::hash::{HashHistory, Repair, ShardHashes};
 use crate::ids::{Epoch, FormId, PlayerId, Rev, Seq, Tick};
 use crate::proto::{self, Hello, Msg, RejectReason, SNAPSHOT_CHUNK_BYTES};
+use crate::rules::Mode;
 use crate::schema::Field;
 use crate::session::{self, HostCursor, RejoinDecision, RejoinRequest};
 use crate::snapshot::Snapshot;
-use super::live::HostLive;
-use crate::rules::Mode;
 
 /// Host tunables.
 #[derive(Clone, Debug)]
@@ -37,7 +37,15 @@ pub struct HostConfig {
 impl HostConfig {
     /// Sensible defaults for a given identity.
     pub fn new(hello: Hello, session: u64) -> Self {
-        HostConfig { hello, session, max_guests: 3, ring_cap: 128, hash_history: 32, mode: Mode::CoopBalanced, compat: Default::default() }
+        HostConfig {
+            hello,
+            session,
+            max_guests: 3,
+            ring_cap: 128,
+            hash_history: 32,
+            mode: Mode::CoopBalanced,
+            compat: Default::default(),
+        }
     }
 }
 
@@ -146,7 +154,8 @@ impl HostSync {
 
     /// Feeds a live-layer message from the host player's own game.
     pub fn on_local(&mut self, msg: Msg) -> Vec<(PlayerId, Msg)> {
-        self.live.on_msg(PlayerId::HOST, msg, self.now_ms, &mut self.auth)
+        self.live
+            .on_msg(PlayerId::HOST, msg, self.now_ms, &mut self.auth)
     }
 
     fn cursor_for(&self, p: PlayerId) -> HostCursor {
@@ -168,14 +177,26 @@ impl HostSync {
             Msg::Hello(h) => {
                 if !self.guests.contains_key(&from) && self.guests.len() >= self.cfg.max_guests {
                     out.push((from, Msg::Reject(RejectReason::Full)));
-                } else if let crate::compat::Verdict::Refuse(r, found) = crate::compat::decide(&self.cfg.hello, &h, self.cfg.compat) {
+                } else if let crate::compat::Verdict::Refuse(r, found) =
+                    crate::compat::decide(&self.cfg.hello, &h, self.cfg.compat)
+                {
                     out.push((from, Msg::Incompat(self.cfg.hello.clone())));
                     out.push((from, Msg::Reject(r)));
-                    self.compat_log.push(CompatNote { player: from, issues: found, refused: true });
+                    self.compat_log.push(CompatNote {
+                        player: from,
+                        issues: found,
+                        refused: true,
+                    });
                 } else {
-                    if let crate::compat::Verdict::Warn(found) = crate::compat::decide(&self.cfg.hello, &h, self.cfg.compat) {
+                    if let crate::compat::Verdict::Warn(found) =
+                        crate::compat::decide(&self.cfg.hello, &h, self.cfg.compat)
+                    {
                         out.push((from, Msg::Incompat(self.cfg.hello.clone())));
-                        self.compat_log.push(CompatNote { player: from, issues: found, refused: false });
+                        self.compat_log.push(CompatNote {
+                            player: from,
+                            issues: found,
+                            refused: false,
+                        });
                     }
                     self.guests.entry(from).or_default().active = false;
                     out.push((
@@ -200,12 +221,20 @@ impl HostSync {
                     out.push((from, Msg::Reject(RejectReason::SessionMismatch)));
                 }
             }
-            Msg::Rejoin { session, last_seq, have_rev } => {
+            Msg::Rejoin {
+                session,
+                last_seq,
+                have_rev,
+            } => {
                 if !self.guests.contains_key(&from) {
                     out.push((from, Msg::Reject(RejectReason::SessionMismatch)));
                     return out;
                 }
-                let req = RejoinRequest { session, last_seq, have_rev };
+                let req = RejoinRequest {
+                    session,
+                    last_seq,
+                    have_rev,
+                };
                 match session::decide_rejoin(&self.cursor_for(from), &req) {
                     RejoinDecision::Resume { base } => {
                         self.ring.resume_from(from, base);
@@ -227,14 +256,27 @@ impl HostSync {
                     self.inputs.push((from, tick, payload));
                 }
             }
-            Msg::Intent { id, epoch, changes } => out.extend(self.on_intent(from, id, epoch, changes)),
-            m @ (Msg::Avatar(_) | Msg::Actor(_) | Msg::Dialogue(_) | Msg::Loot(_) | Msg::Rules(_) | Msg::Social(_) | Msg::Scene(_) | Msg::Interact(_) | Msg::Roam(_) | Msg::Combat(_)) => {
+            Msg::Intent { id, epoch, changes } => {
+                out.extend(self.on_intent(from, id, epoch, changes))
+            }
+            m @ (Msg::Avatar(_)
+            | Msg::Actor(_)
+            | Msg::Dialogue(_)
+            | Msg::Loot(_)
+            | Msg::Rules(_)
+            | Msg::Social(_)
+            | Msg::Scene(_)
+            | Msg::Interact(_)
+            | Msg::Roam(_)
+            | Msg::Combat(_)) => {
                 if self.guests.get(&from).map_or(false, |g| g.active) {
                     out.extend(self.live.on_msg(from, m, self.now_ms, &mut self.auth));
                 }
             }
             Msg::Ping { nonce } => out.push((from, Msg::Pong { nonce })),
-            Msg::RepairRequest { rev, shards } => out.extend(self.on_repair_request(from, rev, shards)),
+            Msg::RepairRequest { rev, shards } => {
+                out.extend(self.on_repair_request(from, rev, shards))
+            }
             _ => {}
         }
         out
@@ -247,13 +289,21 @@ impl HostSync {
         epoch: Epoch,
         changes: Vec<(FormId, Field)>,
     ) -> Vec<(PlayerId, Msg)> {
-        let Some(g) = self.guests.get_mut(&from) else { return vec![] };
+        let Some(g) = self.guests.get_mut(&from) else {
+            return vec![];
+        };
         if !g.active {
             return vec![];
         }
         if id <= g.last_intent {
             // retransmission: repeat the verdict, apply nothing
-            return vec![(from, Msg::IntentAck { id, rejected: g.last_rejected })];
+            return vec![(
+                from,
+                Msg::IntentAck {
+                    id,
+                    rejected: g.last_rejected,
+                },
+            )];
         }
         let mut rejected = 0u16;
         for (form, field) in changes {
@@ -269,7 +319,12 @@ impl HostSync {
         vec![(from, Msg::IntentAck { id, rejected })]
     }
 
-    fn on_repair_request(&mut self, from: PlayerId, rev: Rev, shards: Vec<u64>) -> Vec<(PlayerId, Msg)> {
+    fn on_repair_request(
+        &mut self,
+        from: PlayerId,
+        rev: Rev,
+        shards: Vec<u64>,
+    ) -> Vec<(PlayerId, Msg)> {
         let (Some(theirs), Some(ours)) = (ShardHashes::from_vec(shards), self.hist.get(rev)) else {
             return vec![];
         };
@@ -293,7 +348,12 @@ impl HostSync {
         self.tick = Tick(self.tick.0 + 1);
         let mut out = std::mem::take(&mut self.deferred);
         out.extend(self.live.tick(self.now_ms, &mut self.auth));
-        let active: Vec<PlayerId> = self.guests.iter().filter(|(_, g)| g.active).map(|(p, _)| *p).collect();
+        let active: Vec<PlayerId> = self
+            .guests
+            .iter()
+            .filter(|(_, g)| g.active)
+            .map(|(p, _)| *p)
+            .collect();
         for p in active {
             match self.ring.plan(p, self.store.rev()) {
                 SendPlan::Nothing => {}
@@ -341,7 +401,16 @@ impl HostSync {
         self.guests
             .iter()
             .filter(|(_, g)| g.active)
-            .map(|(p, _)| (*p, Msg::Hash { tick: self.tick, rev, root }))
+            .map(|(p, _)| {
+                (
+                    *p,
+                    Msg::Hash {
+                        tick: self.tick,
+                        rev,
+                        root,
+                    },
+                )
+            })
             .collect()
     }
 

@@ -39,7 +39,10 @@ pub fn quest_for_topic(order: &LoadOrder, gs: &GameState, topic: FormId) -> Opti
     let g = gs.coop.gate.as_ref()?;
     g.table().rows().iter().find_map(|r| {
         let c = r.consent.as_ref()?;
-        c.topics.iter().any(|t| resolve(order, t) == Some(topic)).then_some(g.lid(r.id))
+        c.topics
+            .iter()
+            .any(|t| resolve(order, t) == Some(topic))
+            .then_some(g.lid(r.id))
     })
 }
 
@@ -48,21 +51,41 @@ pub fn quest_for_box(order: &LoadOrder, gs: &GameState, message: FormId) -> Opti
     let g = gs.coop.gate.as_ref()?;
     g.table().rows().iter().find_map(|r| {
         let c = r.consent.as_ref()?;
-        c.boxes.iter().any(|b| resolve(order, b) == Some(message)).then_some(g.lid(r.id))
+        c.boxes
+            .iter()
+            .any(|b| resolve(order, b) == Some(message))
+            .then_some(g.lid(r.id))
     })
 }
 
 /// A script asks to take fork `choice` of `quest`.
 pub fn check(gs: &mut GameState, quest: FormId, choice: u32) -> Fork {
-    let Some(has) = gs.coop.gate.as_ref().map(|g| g.row(quest).is_some_and(|r| r.consent.is_some())) else {
+    let Some(has) = gs
+        .coop
+        .gate
+        .as_ref()
+        .map(|g| g.row(quest).is_some_and(|r| r.consent.is_some()))
+    else {
         return Fork::Proceed;
     };
     if !has {
         return Fork::Proceed;
     }
     // a fork already decided stays decided (one-way)
-    if let Some((_, _, ok)) = gs.coop.campaign.forks.done.iter().rev().find(|(q, c, _)| *q == quest && *c == choice) {
-        return if *ok { Fork::Proceed } else { Fork::Denied(Reject::Declined) };
+    if let Some((_, _, ok)) = gs
+        .coop
+        .campaign
+        .forks
+        .done
+        .iter()
+        .rev()
+        .find(|(q, c, _)| *q == quest && *c == choice)
+    {
+        return if *ok {
+            Fork::Proceed
+        } else {
+            Fork::Denied(Reject::Declined)
+        };
     }
     if !gs.coop.campaign.forks.open.contains_key(&quest) {
         gs.coop.campaign.forks.open.insert(quest, choice);
@@ -102,7 +125,9 @@ pub fn vote(gs: &mut GameState, quest: FormId, slot: u8, yes: bool) {
 
 /// Players that still have to vote on `quest`.
 pub fn waiting_for(gs: &GameState, quest: FormId) -> PlayerMask {
-    let Some(g) = gs.coop.gate.as_ref() else { return PlayerMask::NONE };
+    let Some(g) = gs.coop.gate.as_ref() else {
+        return PlayerMask::NONE;
+    };
     let s = g.session(quest);
     let answered = s.map_or(PlayerMask::NONE, |s| s.votes_yes.or(s.votes_no));
     g.present.minus(answered)
@@ -111,7 +136,14 @@ pub fn waiting_for(gs: &GameState, quest: FormId) -> PlayerMask {
 /// Re-asks every open fork (the clocks may have run it out); returns those
 /// that finished: (quest, choice, approved).
 pub fn poll(gs: &mut GameState) -> Vec<(FormId, u32, bool)> {
-    let open: Vec<(FormId, u32)> = gs.coop.campaign.forks.open.iter().map(|(q, c)| (*q, *c)).collect();
+    let open: Vec<(FormId, u32)> = gs
+        .coop
+        .campaign
+        .forks
+        .open
+        .iter()
+        .map(|(q, c)| (*q, *c))
+        .collect();
     let mut out = Vec::new();
     for (q, c) in open {
         match check(gs, q, c) {

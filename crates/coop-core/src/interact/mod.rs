@@ -438,9 +438,10 @@ impl InteractMsg {
     /// Structural bounds.
     pub fn is_sane(&self) -> bool {
         match self {
-            InteractMsg::Request { act: Act::Barter { buys, sells, .. }, .. } => {
-                buys.len() <= MAX_LINES && sells.len() <= MAX_LINES
-            }
+            InteractMsg::Request {
+                act: Act::Barter { buys, sells, .. },
+                ..
+            } => buys.len() <= MAX_LINES && sells.len() <= MAX_LINES,
             InteractMsg::Sync(v) => v.len() <= SYNC_CHUNK,
             _ => true,
         }

@@ -33,8 +33,8 @@ mod intents;
 mod interact;
 mod puppets;
 mod roam;
-mod vote;
 pub mod voice;
+mod vote;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -92,11 +92,18 @@ impl Plugin for LivePlugin {
             .add_systems(
                 Update,
                 (
-                    (bot::run, intents::loot, intents::tap_dialogue, actions::emit)
+                    (
+                        bot::run,
+                        intents::loot,
+                        intents::tap_dialogue,
+                        actions::emit,
+                    )
                         .chain()
                         .in_set(ViewerSet::AfterFrame)
                         .before(frame::run),
-                    frame::run.in_set(ViewerSet::AfterFrame).before(crate::coop::send),
+                    frame::run
+                        .in_set(ViewerSet::AfterFrame)
+                        .before(crate::coop::send),
                     (
                         puppets::sync,
                         puppets::name_tags,
@@ -118,8 +125,12 @@ impl Plugin for LivePlugin {
                         .after(frame::run)
                         .before(crate::coop::send),
                     chat::typing.in_set(ViewerSet::Input),
-                    hud_social::ping_input.in_set(ViewerSet::AfterFrame).before(frame::run),
-                    (hud_social::publish, hud_social::edge_hints).in_set(ViewerSet::AfterFrame).after(frame::run),
+                    hud_social::ping_input
+                        .in_set(ViewerSet::AfterFrame)
+                        .before(frame::run),
+                    (hud_social::publish, hud_social::edge_hints)
+                        .in_set(ViewerSet::AfterFrame)
+                        .after(frame::run),
                     hud_social::place_window,
                     (puppets::drive, actors::apply_remote).before(crate::actors::animate_actors),
                 ),

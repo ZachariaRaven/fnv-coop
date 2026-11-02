@@ -12,7 +12,8 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use coop_core::ids::{CellId, FormId as CForm, PlayerId};
 use coop_core::interact::{
-    Act, CompanionCmd, Decision, Follow, IOut, Outcome, PipOp, Shared, StealMode, TrapOutcome, Why, DROP_BASE,
+    Act, CompanionCmd, Decision, Follow, IOut, Outcome, PipOp, Shared, StealMode, TrapOutcome, Why,
+    DROP_BASE,
 };
 use coop_core::proto::Msg;
 use coop_core::rules::RulesEvent;
@@ -116,14 +117,33 @@ fn deferred(act: &Act) -> bool {
 pub use coop_core::interact::Act as CoopAct;
 
 /// The act of accepting a trade.
-pub fn barter_act(vendor: FormId, buys: &[(FormId, i32)], sells: &[(FormId, i32)], total: f32) -> Act {
-    let c = |l: &[(FormId, i32)]| l.iter().map(|(i, n)| (cf(*i), (*n).max(0) as u32)).collect();
-    Act::Barter { vendor: cf(vendor), buys: c(buys), sells: c(sells), total: total.floor() as i32 }
+pub fn barter_act(
+    vendor: FormId,
+    buys: &[(FormId, i32)],
+    sells: &[(FormId, i32)],
+    total: f32,
+) -> Act {
+    let c = |l: &[(FormId, i32)]| {
+        l.iter()
+            .map(|(i, n)| (cf(*i), (*n).max(0) as u32))
+            .collect()
+    };
+    Act::Barter {
+        vendor: cf(vendor),
+        buys: c(buys),
+        sells: c(sells),
+        total: total.floor() as i32,
+    }
 }
 
 /// The lockpicking game's outcome: `pins` spent, opened, or broke the lock.
 pub fn lockpick_act(obj: FormId, won: bool, pins: u8, broke: bool) -> Act {
-    Act::Lockpick { obj: cf(obj), won, pins, broke }
+    Act::Lockpick {
+        obj: cf(obj),
+        won,
+        pins,
+        broke,
+    }
 }
 
 /// The hacking game's outcome.
@@ -138,27 +158,50 @@ pub fn door_act(door: FormId) -> Act {
 
 /// Using a (two-way) load door from cell `from` into cell `to`.
 pub fn enter_act(door: FormId, from: u32, to: u32) -> Act {
-    Act::Transition { door: cf(door), from: CellId(from), to: CellId(to), one_way: false }
+    Act::Transition {
+        door: cf(door),
+        from: CellId(from),
+        to: CellId(to),
+        one_way: false,
+    }
 }
 
 /// Taking a thing lying in the world.
 pub fn pickup_act(obj: FormId, item: FormId, count: u32) -> Act {
-    Act::Pickup { obj: cf(obj), item: cf(item), count }
+    Act::Pickup {
+        obj: cf(obj),
+        item: cf(item),
+        count,
+    }
 }
 
 /// Making things at a bench (`bench` 0 when the menu does not know it).
 pub fn craft_act(bench: FormId, recipe: FormId, times: u32) -> Act {
-    Act::Craft { bench: cf(bench), recipe: cf(recipe), times }
+    Act::Craft {
+        bench: cf(bench),
+        recipe: cf(recipe),
+        times,
+    }
 }
 
 /// Mending an item with a part.
 pub fn repair_part_act(item: FormId, part: FormId) -> Act {
-    Act::Repair { item: cf(item), part: cf(part), vendor: cf(FormId(0)), cost: 0 }
+    Act::Repair {
+        item: cf(item),
+        part: cf(part),
+        vendor: cf(FormId(0)),
+        cost: 0,
+    }
 }
 
 /// Having a vendor mend an item for `cost` caps.
 pub fn repair_vendor_act(item: FormId, vendor: FormId, cost: i32) -> Act {
-    Act::Repair { item: cf(item), part: cf(FormId(0)), vendor: cf(vendor), cost: cost.max(0) as u32 }
+    Act::Repair {
+        item: cf(item),
+        part: cf(FormId(0)),
+        vendor: cf(vendor),
+        cost: cost.max(0) as u32,
+    }
 }
 
 /// Using an aid item.
@@ -191,12 +234,18 @@ pub fn companion_var_act(who: FormId, name: &str, value: f32) -> Option<Act> {
         "combatstyleranged" => 3,
         _ => return None,
     };
-    Some(Act::Companion { who: cf(who), cmd: coop_core::interact::CompanionCmd::Switch(which, value != 0.0) })
+    Some(Act::Companion {
+        who: cf(who),
+        cmd: coop_core::interact::CompanionCmd::Switch(which, value != 0.0),
+    })
 }
 
 /// A Stimpak on a companion.
 pub fn companion_stimpak_act(who: FormId) -> Act {
-    Act::Companion { who: cf(who), cmd: coop_core::interact::CompanionCmd::Stimpak }
+    Act::Companion {
+        who: cf(who),
+        cmd: coop_core::interact::CompanionCmd::Stimpak,
+    }
 }
 
 impl GameState {
@@ -262,15 +311,32 @@ impl GameState {
 impl GameState {
     /// Drops items in co-op (the host bridge makes the world reference and
     /// tells everyone). False on single player: the caller drops them itself.
-    pub fn coop_drop(&mut self, order: &esm::LoadOrder, item: FormId, count: i32, heading: f32) -> bool {
+    pub fn coop_drop(
+        &mut self,
+        order: &esm::LoadOrder,
+        item: FormId,
+        count: i32,
+        heading: f32,
+    ) -> bool {
         if self.coop.authority == Authority::Single {
             return false;
         }
-        let Some((space, cell, p, _)) = self.place(order, crate::dialogue::PLAYER_REF) else { return false };
-        let spot = [(p[0] + 60.0 * heading.sin()) as i32, (p[1] + 60.0 * heading.cos()) as i32, p[2] as i32];
+        let Some((space, cell, p, _)) = self.place(order, crate::dialogue::PLAYER_REF) else {
+            return false;
+        };
+        let spot = [
+            (p[0] + 60.0 * heading.sin()) as i32,
+            (p[1] + 60.0 * heading.cos()) as i32,
+            p[2] as i32,
+        ];
         let _ = space;
         self.coop.interact.acts.push((
-            Act::Drop { item: cf(item), count: count.max(1) as u32, cell: CellId(cell.0), pos: spot },
+            Act::Drop {
+                item: cf(item),
+                count: count.max(1) as u32,
+                cell: CellId(cell.0),
+                pos: spot,
+            },
             false,
         ));
         true
@@ -285,19 +351,28 @@ impl GameState {
         }
         let from = self.player_cell.map_or(0, |c| c.0);
         let slot = self.active_slot();
-        self.coop.interact.script_moves.push((slot, to, from, entering));
+        self.coop
+            .interact
+            .script_moves
+            .push((slot, to, from, entering));
     }
 }
 
 impl InteractFacts {
     fn count(&mut self, act: &Act, o: &Outcome) {
-        let map = if o.ok { &mut self.done } else { &mut self.refused };
+        let map = if o.ok {
+            &mut self.done
+        } else {
+            &mut self.refused
+        };
         *map.entry(act.name()).or_insert(0) += 1;
     }
 }
 
 fn send(live: &mut HostLive, outs: Vec<IOut>) -> Outs {
-    outs.into_iter().flat_map(|o| live.route_extern(o.aud, Msg::Interact(o.msg))).collect()
+    outs.into_iter()
+        .flat_map(|o| live.route_extern(o.aud, Msg::Interact(o.msg)))
+        .collect()
 }
 
 struct Pending {
@@ -335,13 +410,26 @@ impl HostInteract {
         act: &Act,
         now_ms: u64,
     ) -> Option<Outcome> {
-        let Act::Transition { door, from: from_cell, to, one_way } = act else { return Some(Outcome::refused(Why::Invalid)) };
+        let Act::Transition {
+            door,
+            from: from_cell,
+            to,
+            one_way,
+        } = act
+        else {
+            return Some(Outcome::refused(Why::Invalid));
+        };
         let members = live.members().to_vec();
         let t = live.interact.transit;
         match t.decide(from, *from_cell, *to, *one_way, &members, &live.interest) {
-            Decision::Go { followers } => {
-                Some(Outcome::done().with_follow(Follow { door: *door, to: *to, leader: from }, followers))
-            }
+            Decision::Go { followers } => Some(Outcome::done().with_follow(
+                Follow {
+                    door: *door,
+                    to: *to,
+                    leader: from,
+                },
+                followers,
+            )),
             Decision::Deny(w) => Some(Outcome::refused(w)),
             Decision::Barrier => {
                 self.next_tag += 1;
@@ -350,7 +438,15 @@ impl HostInteract {
                 for o in rout {
                     outs.extend(live.route_extern(o.aud, Msg::Rules(o.msg)));
                 }
-                self.pending.insert(tag, Pending { from, txn, door: *door, to: *to });
+                self.pending.insert(
+                    tag,
+                    Pending {
+                        from,
+                        txn,
+                        door: *door,
+                        to: *to,
+                    },
+                );
                 None
             }
         }
@@ -370,18 +466,29 @@ impl HostInteract {
         let mut outs: Outs = Vec::new();
         if now_ms >= self.next_sweep_ms {
             self.next_sweep_ms = now_ms + SWEEP_MS;
-            let io = live.interact.publish(super::interact_acts::world_shared(cx, gs));
+            let io = live
+                .interact
+                .publish(super::interact_acts::world_shared(cx, gs));
             outs.extend(send(live, io));
         }
         // scripts that moved a player: the party follows the leader, a guest is brought along
         for (slot, to, from, entering) in std::mem::take(&mut gs.coop.interact.script_moves) {
-            let f = Follow { door: cf(to), to: CellId(entering.0), leader: PlayerId(slot) };
+            let f = Follow {
+                door: cf(to),
+                to: CellId(entering.0),
+                leader: PlayerId(slot),
+            };
             if slot != 0 {
                 let io = live.interact.follow(f, &[PlayerId(slot)]);
                 outs.extend(send(live, io));
                 continue;
             }
-            let act = Act::Transition { door: cf(to), from: CellId(from), to: CellId(entering.0), one_way: false };
+            let act = Act::Transition {
+                door: cf(to),
+                from: CellId(from),
+                to: CellId(entering.0),
+                one_way: false,
+            };
             if let Some(o) = self.decide(live, &mut outs, PlayerId::HOST, None, &act, now_ms) {
                 if let Some((f, who)) = o.follow.filter(|_| o.ok) {
                     let io = live.interact.follow(f, &who);
@@ -445,10 +552,19 @@ impl HostInteract {
             match e {
                 RulesEvent::BarrierReleased { tag, players, .. } => {
                     if let Some(pd) = self.pending.remove(tag) {
-                        let who: Vec<PlayerId> = players.iter().copied().filter(|p| *p != pd.from).collect();
-                        let f = Follow { door: pd.door, to: pd.to, leader: pd.from };
+                        let who: Vec<PlayerId> =
+                            players.iter().copied().filter(|p| *p != pd.from).collect();
+                        let f = Follow {
+                            door: pd.door,
+                            to: pd.to,
+                            leader: pd.from,
+                        };
                         let io = match pd.txn {
-                            Some(txn) => live.interact.resolve(pd.from, txn, Outcome::done().with_follow(f, who)),
+                            Some(txn) => live.interact.resolve(
+                                pd.from,
+                                txn,
+                                Outcome::done().with_follow(f, who),
+                            ),
                             None => live.interact.follow(f, &who),
                         };
                         outs.extend(send(live, io));
@@ -458,7 +574,9 @@ impl HostInteract {
                 RulesEvent::BarrierCancelled { tag, .. } => {
                     if let Some(pd) = self.pending.remove(tag) {
                         if let Some(txn) = pd.txn {
-                            let io = live.interact.resolve(pd.from, txn, Outcome::refused(Why::Policy));
+                            let io =
+                                live.interact
+                                    .resolve(pd.from, txn, Outcome::refused(Why::Policy));
                             outs.extend(send(live, io));
                         }
                         *gs.coop.interact.refused.entry("transition").or_insert(0) += 1;
@@ -505,12 +623,25 @@ impl GuestInteract {
             gs.coop.interact.shared_in += 1;
         }
         for st in std::mem::take(&mut live.interact.settled) {
-            let o = Outcome { ok: st.ok, why: st.why, shared: Vec::new(), follow: None };
+            let o = Outcome {
+                ok: st.ok,
+                why: st.why,
+                shared: Vec::new(),
+                follow: None,
+            };
             gs.coop.interact.count(&st.act, &o);
             if let (true, Act::Transition { door, to, .. }) = (st.ok, &st.act) {
-                gs.coop.interact.follow = Some(Follow { door: *door, to: *to, leader: PlayerId::HOST });
+                gs.coop.interact.follow = Some(Follow {
+                    door: *door,
+                    to: *to,
+                    leader: PlayerId::HOST,
+                });
             }
-            gs.coop.interact.results.push(ActResult { act: st.act, ok: st.ok, why: st.why });
+            gs.coop.interact.results.push(ActResult {
+                act: st.act,
+                ok: st.ok,
+                why: st.why,
+            });
         }
         for f in std::mem::take(&mut live.interact.follows) {
             gs.coop.interact.follow = Some(f);
@@ -523,10 +654,19 @@ impl GuestInteract {
 /// Parses the words of a bot line after `coop` into an act. `form` turns an
 /// editor id or hex form id into a form; `here` is the player's cell and
 /// position (for drops).
-pub fn parse_act(words: &[&str], form: &dyn Fn(&str) -> Option<FormId>, here: (u32, [i32; 3])) -> Option<Act> {
+pub fn parse_act(
+    words: &[&str],
+    form: &dyn Fn(&str) -> Option<FormId>,
+    here: (u32, [i32; 3]),
+) -> Option<Act> {
     let verb = words.first()?.to_ascii_lowercase();
     let f = |i: usize| words.get(i).and_then(|w| form(w));
-    let n = |i: usize, d: u32| words.get(i).and_then(|w| w.parse::<u32>().ok()).unwrap_or(d);
+    let n = |i: usize, d: u32| {
+        words
+            .get(i)
+            .and_then(|w| w.parse::<u32>().ok())
+            .unwrap_or(d)
+    };
     let word = |i: usize| words.get(i).map(|w| w.to_ascii_lowercase());
     let c = |x: Option<FormId>| x.map(cf);
     Some(match verb.as_str() {
@@ -536,7 +676,11 @@ pub fn parse_act(words: &[&str], form: &dyn Fn(&str) -> Option<FormId>, here: (u
             let (mut buys, mut sells) = (Vec::new(), Vec::new());
             for w in &words[3..] {
                 let mut p = w.split(':');
-                let (kind, item, cnt) = (p.next()?, p.next()?, p.next().and_then(|x| x.parse::<u32>().ok()).unwrap_or(1));
+                let (kind, item, cnt) = (
+                    p.next()?,
+                    p.next()?,
+                    p.next().and_then(|x| x.parse::<u32>().ok()).unwrap_or(1),
+                );
                 let item = cf(form(item)?);
                 match kind {
                     "buy" => buys.push((item, cnt)),
@@ -544,12 +688,26 @@ pub fn parse_act(words: &[&str], form: &dyn Fn(&str) -> Option<FormId>, here: (u
                     _ => return None,
                 }
             }
-            Act::Barter { vendor, buys, sells, total }
+            Act::Barter {
+                vendor,
+                buys,
+                sells,
+                total,
+            }
         }
         "door" => Act::Door { door: c(f(1))? },
         "activate" => Act::Activate { obj: c(f(1))? },
-        "pickup" => Act::Pickup { obj: c(f(1))?, item: c(f(2))?, count: n(3, 1) },
-        "drop" => Act::Drop { item: c(f(1))?, count: n(2, 1), cell: CellId(here.0), pos: here.1 },
+        "pickup" => Act::Pickup {
+            obj: c(f(1))?,
+            item: c(f(2))?,
+            count: n(3, 1),
+        },
+        "drop" => Act::Drop {
+            item: c(f(1))?,
+            count: n(2, 1),
+            cell: CellId(here.0),
+            pos: here.1,
+        },
         "steal" => Act::Steal {
             target: c(f(1))?,
             item: c(f(2))?,
@@ -560,7 +718,11 @@ pub fn parse_act(words: &[&str], form: &dyn Fn(&str) -> Option<FormId>, here: (u
                 _ => StealMode::Pickpocket,
             },
         },
-        "craft" => Act::Craft { bench: c(f(1))?, recipe: c(f(2))?, times: n(3, 1) },
+        "craft" => Act::Craft {
+            bench: c(f(1))?,
+            recipe: c(f(2))?,
+            times: n(3, 1),
+        },
         "repair" => Act::Repair {
             item: c(f(1))?,
             part: cf(f(2).unwrap_or(FormId(0))),
@@ -568,9 +730,17 @@ pub fn parse_act(words: &[&str], form: &dyn Fn(&str) -> Option<FormId>, here: (u
             cost: n(4, 0),
         },
         "use" => Act::Use { item: c(f(1))? },
-        "equip" => Act::Equip { item: c(f(1))?, on: word(2).as_deref() != Some("off") },
-        "ammo" => Act::Ammo { ammo: cf(f(1).unwrap_or(FormId(0))) },
-        "hotkey" => Act::Pip(PipOp::Hotkey { slot: n(1, 0) as u8, item: cf(f(2).unwrap_or(FormId(0))) }),
+        "equip" => Act::Equip {
+            item: c(f(1))?,
+            on: word(2).as_deref() != Some("off"),
+        },
+        "ammo" => Act::Ammo {
+            ammo: cf(f(1).unwrap_or(FormId(0))),
+        },
+        "hotkey" => Act::Pip(PipOp::Hotkey {
+            slot: n(1, 0) as u8,
+            item: cf(f(2).unwrap_or(FormId(0))),
+        }),
         "note" => Act::Pip(PipOp::Note(c(f(1))?)),
         "companion" => Act::Companion {
             who: c(f(1))?,
@@ -586,10 +756,21 @@ pub fn parse_act(words: &[&str], form: &dyn Fn(&str) -> Option<FormId>, here: (u
         },
         "lockpick" => {
             let r = word(2)?;
-            Act::Lockpick { obj: c(f(1))?, won: r == "won", pins: n(3, 1) as u8, broke: r == "broke" }
+            Act::Lockpick {
+                obj: c(f(1))?,
+                won: r == "won",
+                pins: n(3, 1) as u8,
+                broke: r == "broke",
+            }
         }
-        "hack" => Act::Hack { obj: c(f(1))?, won: word(2)? == "won" },
-        "key" => Act::Key { obj: c(f(1))?, key: c(f(2))? },
+        "hack" => Act::Hack {
+            obj: c(f(1))?,
+            won: word(2)? == "won",
+        },
+        "key" => Act::Key {
+            obj: c(f(1))?,
+            key: c(f(2))?,
+        },
         "trap" => Act::Trap {
             obj: c(f(1))?,
             what: match word(2)?.as_str() {
@@ -605,7 +786,13 @@ pub fn parse_act(words: &[&str], form: &dyn Fn(&str) -> Option<FormId>, here: (u
                 "none" => None,
                 w => Some(w.parse::<u8>().ok()?),
             };
-            Act::World(Shared::Lock { obj: c(f(1))?, state: coop_core::interact::LockState { level, broken: false } })
+            Act::World(Shared::Lock {
+                obj: c(f(1))?,
+                state: coop_core::interact::LockState {
+                    level,
+                    broken: false,
+                },
+            })
         }
         "enter" => Act::Transition {
             door: c(f(1))?,
@@ -620,7 +807,14 @@ pub fn parse_act(words: &[&str], form: &dyn Fn(&str) -> Option<FormId>, here: (u
 /// Test support (the bots' `coop give TARGET ITEM [N]`): puts items into a
 /// player's shadow (`TARGET` a slot number) or into a holder (a reference).
 /// Never on a guest. Returns whether anything was given.
-pub fn bot_give(order: &esm::LoadOrder, gs: &mut GameState, target: &str, item: FormId, n: i32, holder: Option<FormId>) -> bool {
+pub fn bot_give(
+    order: &esm::LoadOrder,
+    gs: &mut GameState,
+    target: &str,
+    item: FormId,
+    n: i32,
+    holder: Option<FormId>,
+) -> bool {
     if gs.coop.authority == Authority::Guest || n <= 0 {
         return false;
     }
@@ -659,8 +853,16 @@ pub fn special_form(order: &esm::LoadOrder, word: &str) -> Option<FormId> {
 
 /// Test support (`coop givefor SLOT RECIPE TIMES`): the ingredients of a
 /// recipe, `times` over, into a player's shadow. Never on a guest.
-pub fn bot_give_ingredients(order: &esm::LoadOrder, gs: &mut GameState, slot: &str, recipe: FormId, times: u32) -> bool {
-    let Some(r) = crate::crafting::Recipe::load(order, recipe) else { return false };
+pub fn bot_give_ingredients(
+    order: &esm::LoadOrder,
+    gs: &mut GameState,
+    slot: &str,
+    recipe: FormId,
+    times: u32,
+) -> bool {
+    let Some(r) = crate::crafting::Recipe::load(order, recipe) else {
+        return false;
+    };
     let mut any = false;
     for c in &r.ingredients {
         any |= bot_give(order, gs, slot, c.item, (c.count * times) as i32, None);
@@ -695,7 +897,13 @@ pub struct Arrival {
 pub fn arrival_of(order: &esm::LoadOrder, gs: &GameState, target: FormId) -> Option<Arrival> {
     door_arrival(order, target).or_else(|| {
         let (space, cell, pos, heading) = gs.place(order, target)?;
-        Some(Arrival { space, cell, interior: space == cell, pos, heading })
+        Some(Arrival {
+            space,
+            cell,
+            interior: space == cell,
+            pos,
+            heading,
+        })
     })
 }
 
@@ -704,7 +912,9 @@ pub fn arrival_of(order: &esm::LoadOrder, gs: &GameState, target: FormId) -> Opt
 pub fn door_arrival(order: &esm::LoadOrder, door: FormId) -> Option<Arrival> {
     let rr = order.get(door)?;
     let record = rr.record().ok()?;
-    let xtel = record.get(esm::FourCC::new(b"XTEL")).filter(|s| s.data.len() >= 28)?;
+    let xtel = record
+        .get(esm::FourCC::new(b"XTEL"))
+        .filter(|s| s.data.len() >= 28)?;
     let d = &xtel.data;
     let u = |i: usize| u32::from_le_bytes([d[i], d[i + 1], d[i + 2], d[i + 3]]);
     let fl = |i: usize| f32::from_bits(u(i));

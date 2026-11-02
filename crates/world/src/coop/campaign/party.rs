@@ -21,16 +21,25 @@ pub fn shadow_value(gs: &GameState, sh: &PlayerShadow, name: &str, args: &[Value
     Some(match name {
         "GetItemCount" => f64::from(sh.items.get(&arg(0).form()).copied().unwrap_or(0)),
         "GetLevel" => f64::from(sh.level),
-        "GetAV" | "GetActorValue" | "GetBaseActorValue" => sh.actor_values.get(&(arg(0).number() as u16)).copied().unwrap_or(0.0),
+        "GetAV" | "GetActorValue" | "GetBaseActorValue" => sh
+            .actor_values
+            .get(&(arg(0).number() as u16))
+            .copied()
+            .unwrap_or(0.0),
         "HasPerk" => b(sh.perks.contains(&arg(0).form())),
         "GetPlayerTeammate" => b(sh.teammates.contains(&arg(0).form())),
         "GetInCell" => b(sh.cell == Some(arg(0).form())),
         "GetInWorldspace" => b(sh.world == Some(arg(0).form())),
         "GetDistance" => {
             let p = sh.position?;
-            let at = [f32::from_bits(p[0]), f32::from_bits(p[1]), f32::from_bits(p[2])];
+            let at = [
+                f32::from_bits(p[0]),
+                f32::from_bits(p[1]),
+                f32::from_bits(p[2]),
+            ];
             let (o, _) = gs.positions.get(&arg(0).form())?;
-            let d = ((at[0] - o[0]).powi(2) + (at[1] - o[1]).powi(2) + (at[2] - o[2]).powi(2)).sqrt();
+            let d =
+                ((at[0] - o[0]).powi(2) + (at[1] - o[1]).powi(2) + (at[2] - o[2]).powi(2)).sqrt();
             f64::from(d)
         }
         _ => return None,
@@ -50,7 +59,9 @@ pub fn reducer_for(gs: &GameState, quest: FormId, name: &str) -> Reducer {
 
 /// Values of `name` for every present player.
 pub fn values(gs: &GameState, name: &str, args: &[Value]) -> Vec<(u8, f64)> {
-    let Some(g) = gs.coop.gate.as_ref() else { return Vec::new() };
+    let Some(g) = gs.coop.gate.as_ref() else {
+        return Vec::new();
+    };
     let mut out = Vec::new();
     for slot in 0..8u8 {
         if !g.present.contains(slot) {
@@ -67,7 +78,13 @@ pub fn values(gs: &GameState, name: &str, args: &[Value]) -> Vec<(u8, f64)> {
 
 /// The party answer for a function in a quest's context, or `None` when the
 /// row leaves it to the initiator (then the live rows answer).
-pub fn party_value(gs: &GameState, quest: FormId, name: &str, args: &[Value], phase: Phase) -> Option<f64> {
+pub fn party_value(
+    gs: &GameState,
+    quest: FormId,
+    name: &str,
+    args: &[Value],
+    phase: Phase,
+) -> Option<f64> {
     let red = reducer_for(gs, quest, name);
     if red == Reducer::Initiator {
         return None;
@@ -85,5 +102,8 @@ pub fn facts_hook(f: &Facts, name: &str, args: &[Value]) -> Option<f64> {
 
 /// Players that satisfy `name` (non-zero), for scenes that need to know who.
 pub fn who(gs: &GameState, name: &str, args: &[Value]) -> PlayerMask {
-    values(gs, name, args).into_iter().filter(|(_, v)| *v != 0.0).fold(PlayerMask::NONE, |m, (s, _)| m.or(PlayerMask::of(s)))
+    values(gs, name, args)
+        .into_iter()
+        .filter(|(_, v)| *v != 0.0)
+        .fold(PlayerMask::NONE, |m, (s, _)| m.or(PlayerMask::of(s)))
 }

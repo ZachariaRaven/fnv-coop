@@ -78,7 +78,10 @@ pub struct VoteHost {
 impl VoteHost {
     /// Empty table.
     pub fn new() -> Self {
-        VoteHost { open: None, next_id: 1 }
+        VoteHost {
+            open: None,
+            next_id: 1,
+        }
     }
 
     /// Id of the open vote.
@@ -110,7 +113,15 @@ impl VoteHost {
         }
         let id = self.next_id;
         self.next_id += 1;
-        let mut o = Open { id, kind, param, proposer, started_ms: now_ms, members: members.to_vec(), votes: BTreeMap::new() };
+        let mut o = Open {
+            id,
+            kind,
+            param,
+            proposer,
+            started_ms: now_ms,
+            members: members.to_vec(),
+            votes: BTreeMap::new(),
+        };
         o.votes.insert(proposer, true);
         self.open = Some(o);
         let r = self.resolve(false);
@@ -119,7 +130,10 @@ impl VoteHost {
 
     /// Records a vote.
     pub fn cast(&mut self, p: PlayerId, id: u32, yes: bool) -> Option<VoteOutcome> {
-        let o = self.open.as_mut().filter(|o| o.id == id && o.members.contains(&p))?;
+        let o = self
+            .open
+            .as_mut()
+            .filter(|o| o.id == id && o.members.contains(&p))?;
         o.votes.entry(p).or_insert(yes);
         self.resolve(false)
     }
@@ -146,14 +160,28 @@ impl VoteHost {
 
     fn close(&mut self, approved: bool) -> Option<VoteOutcome> {
         let o = self.open.take()?;
-        Some(VoteOutcome { id: o.id, kind: o.kind, param: o.param, proposer: o.proposer, approved })
+        Some(VoteOutcome {
+            id: o.id,
+            kind: o.kind,
+            param: o.param,
+            proposer: o.proposer,
+            approved,
+        })
     }
 
     fn resolve(&mut self, _force: bool) -> Option<VoteOutcome> {
         let o = self.open.as_ref()?;
         let n = o.members.len();
-        let yes = o.members.iter().filter(|m| o.votes.get(m) == Some(&true)).count();
-        let no = o.members.iter().filter(|m| o.votes.get(m) == Some(&false)).count();
+        let yes = o
+            .members
+            .iter()
+            .filter(|m| o.votes.get(m) == Some(&true))
+            .count();
+        let no = o
+            .members
+            .iter()
+            .filter(|m| o.votes.get(m) == Some(&false))
+            .count();
         let decided = if o.kind.unanimous() {
             if no > 0 {
                 Some(false)
@@ -219,17 +247,44 @@ mod tests {
     #[test]
     fn fast_travel_is_free_unless_tethered() {
         let mut v = VoteHost::new();
-        assert_eq!(v.propose(PlayerId(1), VoteKind::FastTravel, 0, &ps(3), 0, false, false).0, Proposal::Free);
-        assert_eq!(v.propose(PlayerId(1), VoteKind::FastTravel, 0, &ps(3), 0, true, false).0, Proposal::InCombat);
-        assert!(matches!(v.propose(PlayerId(1), VoteKind::FastTravel, 0, &ps(3), 0, false, true).0, Proposal::Started(_)));
-        assert_eq!(v.propose(PlayerId(2), VoteKind::Sleep, 0, &ps(3), 0, false, true).0, Proposal::Busy);
+        assert_eq!(
+            v.propose(
+                PlayerId(1),
+                VoteKind::FastTravel,
+                0,
+                &ps(3),
+                0,
+                false,
+                false
+            )
+            .0,
+            Proposal::Free
+        );
+        assert_eq!(
+            v.propose(PlayerId(1), VoteKind::FastTravel, 0, &ps(3), 0, true, false)
+                .0,
+            Proposal::InCombat
+        );
+        assert!(matches!(
+            v.propose(PlayerId(1), VoteKind::FastTravel, 0, &ps(3), 0, false, true)
+                .0,
+            Proposal::Started(_)
+        ));
+        assert_eq!(
+            v.propose(PlayerId(2), VoteKind::Sleep, 0, &ps(3), 0, false, true)
+                .0,
+            Proposal::Busy
+        );
     }
 
     #[test]
     fn fork_is_majority_with_host_breaking_ties() {
         let mut v = VoteHost::new();
         let id = start(&mut v, VoteKind::Fork, 3);
-        assert!(v.cast(PlayerId(0), id, true).unwrap().approved, "2 of 3 yes");
+        assert!(
+            v.cast(PlayerId(0), id, true).unwrap().approved,
+            "2 of 3 yes"
+        );
         // 4 players, 2-2 tie: host (slot 0) says no
         let id = start(&mut v, VoteKind::Fork, 4);
         assert!(v.cast(PlayerId(2), id, true).is_none());
@@ -257,7 +312,10 @@ mod tests {
         assert!(!o.approved && o.id == id);
         let id = start(&mut v, VoteKind::Sleep, 3);
         v.cast(PlayerId(0), id, true);
-        assert!(v.leave(PlayerId(2)).unwrap().approved, "the missing voter left");
+        assert!(
+            v.leave(PlayerId(2)).unwrap().approved,
+            "the missing voter left"
+        );
     }
 
     #[test]

@@ -27,8 +27,8 @@ use coop_core::ids::PlayerId;
 use coop_core::proto::Msg;
 use coop_core::rules::VoteKind;
 use coop_core::scene::{
-    BarrierRule, CameraMode, ClockSnap, EndReason, Locks, Mask, Movie, Notice, Phase, SceneClient, SceneEvent, SceneKind,
-    SceneMsg, SceneSpec, SceneView, SkipRule,
+    BarrierRule, CameraMode, ClockSnap, EndReason, Locks, Mask, Movie, Notice, Phase, SceneClient,
+    SceneEvent, SceneKind, SceneMsg, SceneSpec, SceneView, SkipRule,
 };
 use coop_core::sync::HostLive;
 use esm::{FormId, LoadOrder};
@@ -244,7 +244,12 @@ impl GameState {
         if self.coop.authority != Authority::Host {
             return;
         }
-        let kind = self.coop.gate.as_ref().and_then(|g| g.table().row(quest.0)).and_then(|r| r.host_decision);
+        let kind = self
+            .coop
+            .gate
+            .as_ref()
+            .and_then(|g| g.table().row(quest.0))
+            .and_then(|r| r.host_decision);
         let kind = match kind {
             Some(coop_policy::HostDecision::Cinematic) => SceneKind::Cinematic,
             Some(coop_policy::HostDecision::Ending) => SceneKind::Ending,
@@ -261,7 +266,10 @@ impl GameState {
     /// so the guest agrees with the host) and not written over the guest's
     /// smooth clock.
     pub(crate) fn coop_clock_applied(&mut self, form: FormId, v: f32) -> bool {
-        if self.coop.authority == Authority::Guest && self.coop.live.scene.follow && self.coop.clock.contains(&form) {
+        if self.coop.authority == Authority::Guest
+            && self.coop.live.scene.follow
+            && self.coop.clock.contains(&form)
+        {
             self.coop.live.scene.replicated.insert(form, v);
             return true;
         }
@@ -351,7 +359,13 @@ fn set_clock(order: &LoadOrder, gs: &mut GameState, c: &ClockSnap) {
 /// A guest's clock one frame closer to the host's: it runs on at the host's
 /// timescale, closes a small drift over [`CLOCK_SLEW_S`], and jumps when far
 /// off (a skip, a fast travel, a long stall).
-pub fn follow_clock(order: &LoadOrder, gs: &mut GameState, clock: Option<(ClockSnap, u64)>, now_ms: u64, dt: f32) {
+pub fn follow_clock(
+    order: &LoadOrder,
+    gs: &mut GameState,
+    clock: Option<(ClockSnap, u64)>,
+    now_ms: u64,
+    dt: f32,
+) {
     let Some((snap, at)) = clock else { return };
     gs.coop.live.scene.follow = true;
     let scale = f64::from(snap.scale_f());
@@ -420,13 +434,20 @@ impl SceneBridge {
 
     /// Host: turns the notes of the frame into scenes, merges roamers in,
     /// runs approved time skips once and repeats the clock. Send the result.
-    pub fn host_frame(&mut self, cx: Ctx, gs: &mut GameState, live: &mut HostLive, now_ms: u64) -> Vec<(PlayerId, Msg)> {
+    pub fn host_frame(
+        &mut self,
+        cx: Ctx,
+        gs: &mut GameState,
+        live: &mut HostLive,
+        now_ms: u64,
+    ) -> Vec<(PlayerId, Msg)> {
         let mut outs = Vec::new();
         if !self.policy_set {
             self.policy_set = true;
             if let Some(g) = gs.coop.gate.as_ref() {
                 let mut p = live.scene.policy();
-                p.late_join_waits = g.table().policy().late_join.during_scene == coop_policy::LateJoinDuring::Wait;
+                p.late_join_waits =
+                    g.table().policy().late_join.during_scene == coop_policy::LateJoinDuring::Wait;
                 live.scene.set_policy(p);
             }
         }
@@ -439,12 +460,19 @@ impl SceneBridge {
         }
         // movies scripts started
         for (quest, movie) in std::mem::take(&mut gs.coop.live.scene.movie_notes) {
-            let mut spec = SceneSpec::new(SceneKind::Movie, quest.map_or_else(|| fnv(&movie.file), |q| q.0));
+            let mut spec = SceneSpec::new(
+                SceneKind::Movie,
+                quest.map_or_else(|| fnv(&movie.file), |q| q.0),
+            );
             spec.locks = Locks::ALL;
             spec.camera = CameraMode::Movie;
             spec.participants = all;
             spec.barrier = BarrierRule::Together;
-            spec.skip = if movie.interruptable { SkipRule::Unanimous } else { SkipRule::Never };
+            spec.skip = if movie.interruptable {
+                SkipRule::Unanimous
+            } else {
+                SkipRule::Never
+            };
             spec.movie = Some(movie.clone());
             match live.scene.open(spec, now_ms) {
                 Some((id, o)) => {
@@ -454,7 +482,11 @@ impl SceneBridge {
                 None => {
                     // too many scenes: the host plays it alone rather than not at all
                     self.fallback_movies += 1;
-                    gs.coop.live.scene.movie_start = Some(StartMovie { scene: 0, movie, offset_ms: 0 });
+                    gs.coop.live.scene.movie_start = Some(StartMovie {
+                        scene: 0,
+                        movie,
+                        offset_ms: 0,
+                    });
                 }
             }
         }
@@ -462,7 +494,9 @@ impl SceneBridge {
         for (quest, kind) in std::mem::take(&mut gs.coop.live.scene.stage_notes) {
             let row_controls = Self::row_controls(gs, Some(quest));
             let mut spec = SceneSpec::new(kind, quest.0);
-            let limit = row_controls.as_ref().map_or(0, |c| c.timeout_s.saturating_mul(1000));
+            let limit = row_controls
+                .as_ref()
+                .map_or(0, |c| c.timeout_s.saturating_mul(1000));
             match kind {
                 SceneKind::Ending => {
                     spec.locks = Locks::ALL;
@@ -470,10 +504,17 @@ impl SceneBridge {
                     spec.participants = all;
                     spec.barrier = BarrierRule::Together;
                     spec.skip = SkipRule::Unanimous;
-                    spec.timeout_ms = if limit > 0 { limit.max(ENDING_LIMIT_MS) } else { ENDING_LIMIT_MS };
+                    spec.timeout_ms = if limit > 0 {
+                        limit.max(ENDING_LIMIT_MS)
+                    } else {
+                        ENDING_LIMIT_MS
+                    };
                 }
                 _ => {
-                    spec.locks = row_controls.as_ref().and_then(|c| c.masks.first()).map_or(Locks::ALL, |m| parse_mask(m));
+                    spec.locks = row_controls
+                        .as_ref()
+                        .and_then(|c| c.masks.first())
+                        .map_or(Locks::ALL, |m| parse_mask(m));
                     spec.camera = CameraMode::Scripted;
                     spec.barrier = BarrierRule::Roam;
                     spec.skip = SkipRule::HostOnly;
@@ -484,10 +525,15 @@ impl SceneBridge {
                     let here: Vec<PlayerId> = members
                         .iter()
                         .copied()
-                        .filter(|p| p.is_host() || live.avatars.state(*p).is_some_and(|s| s.cell.0 == cell))
+                        .filter(|p| {
+                            p.is_host() || live.avatars.state(*p).is_some_and(|s| s.cell.0 == cell)
+                        })
                         .collect();
                     spec.participants = Mask::from_players(&here);
-                    if matches!(row_controls.as_ref().map(|c| c.scope), Some(coop_policy::ControlScope::Initiator)) {
+                    if matches!(
+                        row_controls.as_ref().map(|c| c.scope),
+                        Some(coop_policy::ControlScope::Initiator)
+                    ) {
                         if let Some(i) = Self::initiator_of(gs, quest) {
                             spec.participants = Mask::of(PlayerId(i));
                         }
@@ -503,12 +549,18 @@ impl SceneBridge {
         // the story's slideshow
         for idx in std::mem::take(&mut gs.coop.live.scene.slide_notes) {
             if let Some(id) = self.ending_id(live) {
-                { let o = live.scene.slide(id, idx); outs.extend(live.route_scene(o)); }
+                {
+                    let o = live.scene.slide(id, idx);
+                    outs.extend(live.route_scene(o));
+                }
             }
         }
         if std::mem::take(&mut gs.coop.live.scene.ending_done) {
             if let Some(id) = self.ending_id(live) {
-                { let o = live.scene.end(id, EndReason::Finished, now_ms); outs.extend(live.route_scene(o)); }
+                {
+                    let o = live.scene.end(id, EndReason::Finished, now_ms);
+                    outs.extend(live.route_scene(o));
+                }
             }
         }
         // a script's control lock
@@ -517,12 +569,21 @@ impl SceneBridge {
         }
         // roamers who arrive in a scene's cell merge in
         for id in live.scene.ids() {
-            let Some(info) = live.scene.scene(id, now_ms) else { continue };
-            if info.spec.cell == 0 || info.spec.barrier != BarrierRule::Roam || info.phase != Phase::Playing {
+            let Some(info) = live.scene.scene(id, now_ms) else {
+                continue;
+            };
+            if info.spec.cell == 0
+                || info.spec.barrier != BarrierRule::Roam
+                || info.phase != Phase::Playing
+            {
                 continue;
             }
             for p in &members {
-                let at = if p.is_host() { gs.player_cell.map(|c| c.0) } else { live.avatars.state(*p).map(|s| s.cell.0) };
+                let at = if p.is_host() {
+                    gs.player_cell.map(|c| c.0)
+                } else {
+                    live.avatars.state(*p).map(|s| s.cell.0)
+                };
                 if at == Some(info.spec.cell) && !info.participants.contains(*p) {
                     let o = live.scene.merge(id, *p, now_ms);
                     outs.extend(live.route_scene(o));
@@ -534,17 +595,29 @@ impl SceneBridge {
             let ran = run_skip(cx.order, gs, hours, sleeping);
             if ran > 0 {
                 let snap = clock_of(cx.order, gs);
-                { let o = live.scene.time_skip(ran as u16, sleeping, snap, now_ms); outs.extend(live.route_scene(o)); }
+                {
+                    let o = live.scene.time_skip(ran as u16, sleeping, snap, now_ms);
+                    outs.extend(live.route_scene(o));
+                }
             }
         }
         let snap = clock_of(cx.order, gs);
-        { let o = live.scene.clock(snap, now_ms); outs.extend(live.route_scene(o)); }
+        {
+            let o = live.scene.clock(snap, now_ms);
+            outs.extend(live.route_scene(o));
+        }
         self.after_events(gs, live);
         outs
     }
 
     fn ending_id(&self, live: &HostLive) -> Option<u32> {
-        live.scene.ids().into_iter().find(|id| self.quest_scenes.contains_key(id) && live.scene.scene(*id, 0).is_some_and(|s| s.spec.kind == SceneKind::Ending))
+        live.scene.ids().into_iter().find(|id| {
+            self.quest_scenes.contains_key(id)
+                && live
+                    .scene
+                    .scene(*id, 0)
+                    .is_some_and(|s| s.spec.kind == SceneKind::Ending)
+        })
     }
 
     fn control_scene(
@@ -559,13 +632,19 @@ impl SceneBridge {
         let mut outs = Vec::new();
         if mask.is_none() {
             if let Some(id) = self.ctl.take() {
-                { let o = live.scene.end(id, EndReason::Finished, now_ms); outs.extend(live.route_scene(o)); }
+                {
+                    let o = live.scene.end(id, EndReason::Finished, now_ms);
+                    outs.extend(live.route_scene(o));
+                }
             }
             return outs;
         }
         if let Some(id) = self.ctl {
             if live.scene.scene(id, now_ms).is_some() {
-                { let o = live.scene.set_locks(id, mask); outs.extend(live.route_scene(o)); }
+                {
+                    let o = live.scene.set_locks(id, mask);
+                    outs.extend(live.route_scene(o));
+                }
                 return outs;
             }
         }
@@ -613,7 +692,11 @@ impl SceneBridge {
         host: bool,
         now_ms: u64,
     ) -> Vec<Msg> {
-        let dt = if self.last_ms == 0 { 0.0 } else { (now_ms.saturating_sub(self.last_ms)).min(250) as f32 / 1000.0 };
+        let dt = if self.last_ms == 0 {
+            0.0
+        } else {
+            (now_ms.saturating_sub(self.last_ms)).min(250) as f32 / 1000.0
+        };
         self.last_ms = now_ms.max(1);
         client.tick(now_ms);
         let mut out = Vec::new();
@@ -621,12 +704,20 @@ impl SceneBridge {
             match n {
                 Notice::Opened(_) => {}
                 Notice::Started { id, offset_ms } => {
-                    let movie = client.views(now_ms).into_iter().find(|v| v.id == id).and_then(|v| v.movie);
+                    let movie = client
+                        .views(now_ms)
+                        .into_iter()
+                        .find(|v| v.id == id)
+                        .and_then(|v| v.movie);
                     if let Some(movie) = movie {
                         gs.coop.live.scene.counters.movies += 1;
                         self.movie_scene = Some(id);
                         self.movie_was_busy = false;
-                        gs.coop.live.scene.movie_start = Some(StartMovie { scene: id, movie, offset_ms });
+                        gs.coop.live.scene.movie_start = Some(StartMovie {
+                            scene: id,
+                            movie,
+                            offset_ms,
+                        });
                     }
                 }
                 Notice::Closed(id, reason) => {
@@ -646,7 +737,12 @@ impl SceneBridge {
                     c.slide = c.slide.max(index);
                     self.last_slide = self.last_slide.max(index);
                 }
-                Notice::TimeSkip { hours, sleeping, clock, .. } => {
+                Notice::TimeSkip {
+                    hours,
+                    sleeping,
+                    clock,
+                    ..
+                } => {
                     if !host {
                         set_clock(cx.order, gs, &clock);
                         if sleeping && !gs.living.hardcore {
@@ -679,8 +775,15 @@ impl SceneBridge {
         }
         // waits and sleeps the local player asked for become party votes
         for (sleeping, hours) in std::mem::take(&mut gs.coop.live.scene.time_asks) {
-            let kind = if sleeping { VoteKind::Sleep } else { VoteKind::Wait };
-            out.push(Msg::Rules(coop_core::rules::RulesMsg::VoteRequest { kind, param: hours }));
+            let kind = if sleeping {
+                VoteKind::Sleep
+            } else {
+                VoteKind::Wait
+            };
+            out.push(Msg::Rules(coop_core::rules::RulesMsg::VoteRequest {
+                kind,
+                param: hours,
+            }));
         }
         // the view and the locks
         let view = client.primary(now_ms);
@@ -690,7 +793,9 @@ impl SceneBridge {
             sc.view = view.clone();
             sc.counters.active = client.count() as u32;
             sc.counters.id = view.as_ref().map_or(0, |v| v.id);
-            sc.counters.phase = view.as_ref().map_or(0, |v| if v.phase == Phase::Playing { 2 } else { 1 });
+            sc.counters.phase =
+                view.as_ref()
+                    .map_or(0, |v| if v.phase == Phase::Playing { 2 } else { 1 });
             sc.counters.kind = view.as_ref().map_or(0, |v| kind_code(v.kind));
             sc.counters.locks = locks.0;
             sc.counters.opened = client.opened_total;
@@ -702,7 +807,11 @@ impl SceneBridge {
             // the host's scripts own its own controls; a script lock that
             // does not include the host (initiator scope) shows none here
             if let (Some(script), Some(ctl)) = (gs.coop.live.scene.script_controls, self.ctl) {
-                let mine = client.views(now_ms).iter().find(|v| v.id == ctl).map_or(true, |v| v.participant);
+                let mine = client
+                    .views(now_ms)
+                    .iter()
+                    .find(|v| v.id == ctl)
+                    .map_or(true, |v| v.participant);
                 gs.controls_off = if mine { script } else { [false; 7] };
             }
         } else {
@@ -735,5 +844,13 @@ fn run_skip(order: &LoadOrder, gs: &mut GameState, hours: u32, sleeping: bool) -
 /// Messages the host's own client sent ([`SceneBridge::local_frame`] with
 /// `host`) are fed to the host layer by the adapter, like rules.
 pub fn is_scene(m: &Msg) -> bool {
-    matches!(m, Msg::Scene(SceneMsg::Done { .. } | SceneMsg::SkipVote { .. } | SceneMsg::Ready { .. } | SceneMsg::Join { .. }))
+    matches!(
+        m,
+        Msg::Scene(
+            SceneMsg::Done { .. }
+                | SceneMsg::SkipVote { .. }
+                | SceneMsg::Ready { .. }
+                | SceneMsg::Join { .. }
+        )
+    )
 }

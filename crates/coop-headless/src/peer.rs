@@ -92,7 +92,15 @@ fn is_local(l: &str) -> Option<&str> {
 
 impl Peer {
     /// A peer standing at the cell's arrival point with `side`'s script.
-    pub fn new(role: Role, sess: Session, d: &Data, place: &Place, side: &Side, early_talk: bool, fixed_glue: bool) -> Peer {
+    pub fn new(
+        role: Role,
+        sess: Session,
+        d: &Data,
+        place: &Place,
+        side: &Side,
+        early_talk: bool,
+        fixed_glue: bool,
+    ) -> Peer {
         let mut gs = GameState::new(&d.order);
         gs.player_cell = Some(place.cell);
         let mut p = Peer {
@@ -148,7 +156,8 @@ impl Peer {
                 Action::Key(k, hold) => p.keys.push((l.at.unwrap_or(0.0), k.clone(), *hold)),
                 Action::Talk => p.talk = Some(if early_talk { 0.0 } else { f64::INFINITY }),
                 Action::Choose(_) | Action::Say(_) => {
-                    p.modelled.insert("--choose/--say: the stand-in menu picks the greeting only".into());
+                    p.modelled
+                        .insert("--choose/--say: the stand-in menu picks the greeting only".into());
                 }
             }
         }
@@ -180,7 +189,14 @@ impl Peer {
             .people
             .iter()
             .map(|p| p.0)
-            .filter(|r| !self.tracked.contains(r) && world::enabled_now(&d.order, *r, &self.gs.disabled) && self.gs.place(&d.order, *r).is_some_and(|p| Some(p.1) == self.gs.player_cell))
+            .filter(|r| {
+                !self.tracked.contains(r)
+                    && world::enabled_now(&d.order, *r, &self.gs.disabled)
+                    && self
+                        .gs
+                        .place(&d.order, *r)
+                        .is_some_and(|p| Some(p.1) == self.gs.player_cell)
+            })
             .collect();
         if !new.is_empty() {
             if self.sess.live_track(cx, &self.gs, &new) {
@@ -198,7 +214,11 @@ impl Peer {
     /// Splits the held lines at `coop_ready` like `coop::split_special`.
     fn on_ready(&mut self, t: f64, d: &Data) {
         self.ready_at = Some(t);
-        let name = if self.role == Role::Host { "host" } else { "guest" };
+        let name = if self.role == Role::Host {
+            "host"
+        } else {
+            "guest"
+        };
         self.log(t, "coop_ready", vec![("role", s(name))]);
         let mut local: Vec<String> = Vec::new();
         let mut host_run: Vec<String> = Vec::new();
@@ -252,7 +272,13 @@ impl Peer {
 
     /// One viewer frame at virtual time `t`.
     pub fn frame(&mut self, t: f64, dt: f32, d: &Data, cx: Ctx) {
-        self.sess.pre_frame_with(&mut self.gs, Opts { present: true, ctx: Some(cx) });
+        self.sess.pre_frame_with(
+            &mut self.gs,
+            Opts {
+                present: true,
+                ctx: Some(cx),
+            },
+        );
         // the game's scripts system: pose in, then the lines
         self.gs.player_position = Some(self.pos);
         self.gs.player_heading = self.heading;
@@ -265,7 +291,9 @@ impl Peer {
             self.run_line(d, &l);
         }
         if let Some(t0) = self.ready_at {
-            let (due, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.later).into_iter().partition(|(at, _)| t - t0 >= *at);
+            let (due, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.later)
+                .into_iter()
+                .partition(|(at, _)| t - t0 >= *at);
             self.later = rest;
             let mut due = due;
             due.sort_by(|a, b| a.0.total_cmp(&b.0));
@@ -293,7 +321,9 @@ impl Peer {
             }
         }
         // the bot
-        let (due, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.bot).into_iter().partition(|(at, _)| *at <= t);
+        let (due, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.bot)
+            .into_iter()
+            .partition(|(at, _)| *at <= t);
         self.bot = rest;
         for (_, l) in due {
             self.line(t, &l);
@@ -303,18 +333,23 @@ impl Peer {
             if crate::social_bot::SocialBot::owns(&l) {
                 let me = self.sess.status().player;
                 let cell = self.gs.player_cell.map_or(0, |c| c.0);
-                self.social.handle(&l, t, me, cell, self.pos, self.heading, &mut self.sess);
+                self.social
+                    .handle(&l, t, me, cell, self.pos, self.heading, &mut self.sess);
                 continue;
             }
             match bot::run_line(&l, d, &mut self.gs, &mut self.sess, cx) {
                 Out::Teleport(p) => self.pos = p,
-                Out::Unknown(w) => self.errors.push(format!("Co-op bot: unknown line {w} in {l:?}")),
+                Out::Unknown(w) => self
+                    .errors
+                    .push(format!("Co-op bot: unknown line {w} in {l:?}")),
                 Out::None => {}
             }
         }
         if self.fixed_glue {
             self.sess.live_loot_ops(cx, &mut self.gs);
-            self.modelled.insert("container actions: Session::live_loot_ops (proposed viewer change)".into());
+            self.modelled.insert(
+                "container actions: Session::live_loot_ops (proposed viewer change)".into(),
+            );
         } else {
             bot::carry_loot(d, &mut self.gs, &mut self.sess, cx);
         }
@@ -361,8 +396,12 @@ impl Peer {
     /// A door the party went through: the physical player arrives on the other
     /// side (the viewer's `coop_live::interact::follow_door`).
     fn follow_door(&mut self, d: &Data) {
-        let Some(f) = self.gs.coop.interact.follow.take() else { return };
-        if let Some(a) = world::coop::interact::arrival_of(&d.order, &self.gs, esm::FormId(f.door.0)) {
+        let Some(f) = self.gs.coop.interact.follow.take() else {
+            return;
+        };
+        if let Some(a) =
+            world::coop::interact::arrival_of(&d.order, &self.gs, esm::FormId(f.door.0))
+        {
             self.pos = a.pos;
             self.heading = a.heading;
             self.gs.player_cell = Some(a.cell);
@@ -381,7 +420,9 @@ impl Peer {
             return;
         }
         self.menu_left = self.menu_left.saturating_sub(1);
-        let Some(step) = self.sess.start_poll(&self.gs, self.menu_left > 0) else { return };
+        let Some(step) = self.sess.start_poll(&self.gs, self.menu_left > 0) else {
+            return;
+        };
         self.modelled.insert("character creation: the menus are stood in for (the rows they set are set when they close); a local room is not loaded, the guest stays in the host's cell".into());
         self.menu_left = 20;
         let gs = &mut self.gs;
@@ -389,7 +430,8 @@ impl Peer {
             coop_session::Step::Name => gs.player_name = Some("Courier Guest".into()),
             coop_session::Step::Special => {
                 for (i, av) in coop_session::start::SPECIAL.iter().enumerate() {
-                    gs.actor_values.insert((world::dialogue::PLAYER_REF, *av), (3 + i) as f64);
+                    gs.actor_values
+                        .insert((world::dialogue::PLAYER_REF, *av), (3 + i) as f64);
                 }
             }
             coop_session::Step::TagSkills => gs.tag_skills = [32u16, 40, 41].into_iter().collect(),
@@ -405,7 +447,9 @@ impl Peer {
         if let Some(m) = sc.movie_start.take() {
             let left = (MOVIE_SECONDS - f64::from(m.offset_ms) / 1000.0).max(0.0);
             self.movie_end = Some(t + left);
-            self.modelled.insert("movie playback: a timer stands in for the Bink player (live_movie_sync)".into());
+            self.modelled.insert(
+                "movie playback: a timer stands in for the Bink player (live_movie_sync)".into(),
+            );
         }
         if std::mem::take(&mut sc.movie_stop) {
             self.movie_end = None;
@@ -451,7 +495,8 @@ impl Peer {
                     self.talker.open(&mut self.sess, npc);
                 }
                 None => {
-                    self.errors.push("no one near enough has a greeting to talk to".into());
+                    self.errors
+                        .push("no one near enough has a greeting to talk to".into());
                     self.talk = None;
                 }
             }
@@ -467,13 +512,25 @@ impl Peer {
     /// scripts made), none hidden.
     fn count_entities(&mut self, d: &Data) {
         let space = self.gs.player_world.or(self.gs.player_cell);
-        let made: Vec<(FormId, FormId)> = self.gs.more.placed.refs.iter().map(|(r, m)| (*r, m.base)).collect();
+        let made: Vec<(FormId, FormId)> = self
+            .gs
+            .more
+            .placed
+            .refs
+            .iter()
+            .map(|(r, m)| (*r, m.base))
+            .collect();
         let (mut npcs, mut creatures) = (0u64, 0u64);
         for (r, base) in self.people.iter().copied().chain(made) {
-            if !world::enabled_now(&d.order, r, &self.gs.disabled) || self.gs.place(&d.order, r).map(|p| p.0) != space {
+            if !world::enabled_now(&d.order, r, &self.gs.disabled)
+                || self.gs.place(&d.order, r).map(|p| p.0) != space
+            {
                 continue;
             }
-            if d.order.get(base).is_some_and(|x| x.entry.header.kind.as_bytes() == b"CREA") {
+            if d.order
+                .get(base)
+                .is_some_and(|x| x.entry.header.kind.as_bytes() == b"CREA")
+            {
                 creatures += 1;
             } else {
                 npcs += 1;
@@ -503,7 +560,8 @@ impl Peer {
         let before = self.spectate.len();
         self.spectate.retain(|at| *at > t);
         for _ in self.spectate.len()..before {
-            self.sess.live_intent(coop_session::Intent::DialogueLineDone);
+            self.sess
+                .live_intent(coop_session::Intent::DialogueLineDone);
         }
     }
 
@@ -513,7 +571,11 @@ impl Peer {
                 CoopEvent::Ready => self.on_ready(t, d),
                 CoopEvent::Repaired => {
                     self.repairs += 1;
-                    self.log(t, "coop_repair", vec![("kind", s("hash")), ("subsystem", s("shared"))]);
+                    self.log(
+                        t,
+                        "coop_repair",
+                        vec![("kind", s("hash")), ("subsystem", s("shared"))],
+                    );
                 }
                 CoopEvent::Compat { refused, .. } => {
                     if refused {
@@ -523,14 +585,20 @@ impl Peer {
                     }
                 }
                 CoopEvent::Connected | CoopEvent::PeerJoined(..) => {
-                    let name = if self.role == Role::Host { "host" } else { "guest" };
+                    let name = if self.role == Role::Host {
+                        "host"
+                    } else {
+                        "guest"
+                    };
                     self.log(t, "coop_connected", vec![("role", s(name))]);
                 }
                 _ => {}
             }
         }
         if let (Role::Guest, Some(t0)) = (self.role, self.ready_at) {
-            let (due, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.guest_timed).into_iter().partition(|(at, _)| t - t0 >= *at);
+            let (due, rest): (Vec<_>, Vec<_>) = std::mem::take(&mut self.guest_timed)
+                .into_iter()
+                .partition(|(at, _)| t - t0 >= *at);
             self.guest_timed = rest;
             for (_, l) in due {
                 self.line(t, &l);
@@ -539,7 +607,11 @@ impl Peer {
         }
         for (from, cmd) in self.sess.take_commands() {
             let line = cmd.as_line();
-            self.log(t, "script", vec![("line", s(line.clone())), ("from", n(from.0 as f64))]);
+            self.log(
+                t,
+                "script",
+                vec![("line", s(line.clone())), ("from", n(from.0 as f64))],
+            );
             if from.is_host() || !self.gs.coop.bank.enabled() {
                 self.start_cmds.push(line);
             } else {
@@ -562,19 +634,44 @@ impl Peer {
         self.seq += 1;
         if std::env::var_os("COOP_SIM_TRACE_ACTORS").is_some() {
             if let Some(v) = &self.view {
-                eprintln!("actors {:?} t={t:.1} owned={:?} remote={:?} dead={}", self.role, v.owned_actors, v.remote_actors.iter().map(|a| (a.id, a.dead, a.health)).collect::<Vec<_>>(), self.gs.dead.len());
+                eprintln!(
+                    "actors {:?} t={t:.1} owned={:?} remote={:?} dead={}",
+                    self.role,
+                    v.owned_actors,
+                    v.remote_actors
+                        .iter()
+                        .map(|a| (a.id, a.dead, a.health))
+                        .collect::<Vec<_>>(),
+                    self.gs.dead.len()
+                );
             }
         }
         if let Some(spec) = std::env::var_os("COOP_SIM_TRACE") {
             // `HOLDER:ITEM` editor ids: prints that stack once a second (debugging aid)
             let spec = spec.to_string_lossy().to_string();
-            if let Some((h, i)) = spec.split_once(':').and_then(|(h, i)| Some((d.form(h)?, d.form(i)?))) {
-                eprintln!("trace {:?} t={t:.1} {spec} = {:?}", self.role, self.gs.items.get(&(h, i)));
+            if let Some((h, i)) = spec
+                .split_once(':')
+                .and_then(|(h, i)| Some((d.form(h)?, d.form(i)?)))
+            {
+                eprintln!(
+                    "trace {:?} t={t:.1} {spec} = {:?}",
+                    self.role,
+                    self.gs.items.get(&(h, i))
+                );
             }
         }
         self.counters.start = Some(self.sess.start_info());
         let root = Session::state_root(&self.gs);
-        self.dump_text = state_json_full(&self.gs, &d.order, self.role, t, self.seq, root, self.view.as_ref(), &self.counters);
+        self.dump_text = state_json_full(
+            &self.gs,
+            &d.order,
+            self.role,
+            t,
+            self.seq,
+            root,
+            self.view.as_ref(),
+            &self.counters,
+        );
     }
 
     /// The last dump text.
@@ -586,6 +683,14 @@ impl Peer {
     pub fn finish(&mut self, t: f64, d: &Data) {
         self.dump(t, d);
         self.log(t, "state_dump", vec![("seq", n(self.seq as f64))]);
-        self.log(t, "shutdown", vec![("reason", s("quit-file")), ("clean", J::Bool(true)), ("code", n(0.0))]);
+        self.log(
+            t,
+            "shutdown",
+            vec![
+                ("reason", s("quit-file")),
+                ("clean", J::Bool(true)),
+                ("code", n(0.0)),
+            ],
+        );
     }
 }

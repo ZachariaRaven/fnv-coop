@@ -727,10 +727,9 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
             "--coop-test-token" => coop.test_token = true,
             "--coop-token" => {
                 let v = value("--coop-token")?;
-                coop.token = Some(
-                    parse_token_hex(&v)
-                        .ok_or_else(|| "--coop-token expects 32 hex digits (a 16 byte token)".to_string())?,
-                );
+                coop.token = Some(parse_token_hex(&v).ok_or_else(|| {
+                    "--coop-token expects 32 hex digits (a 16 byte token)".to_string()
+                })?);
             }
             "--coop-allow-mismatch" => coop.allow_mismatch = true,
             "--coop-voice" => {
@@ -744,7 +743,9 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
             "--coop-ping-key" => coop.ping_key = Some(value("--coop-ping-key")?),
             "--coop-couch" => {
                 let v = value("--coop-couch")?;
-                let seat = v.split_once('/').and_then(|(a, b)| Some((a.trim().parse::<u8>().ok()?, b.trim().parse::<u8>().ok()?)));
+                let seat = v.split_once('/').and_then(|(a, b)| {
+                    Some((a.trim().parse::<u8>().ok()?, b.trim().parse::<u8>().ok()?))
+                });
                 match seat {
                     Some((s, n)) if (1..=4).contains(&n) && s < n => {
                         coop.couch = Some((s, n));
@@ -761,13 +762,17 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
                 let v = value("--coop-window")?;
                 let p: Vec<i64> = v.split(',').filter_map(|x| x.trim().parse().ok()).collect();
                 if p.len() != 4 || v.split(',').count() != 4 || p[2] < 160 || p[3] < 120 {
-                    return Err(format!("--coop-window expects X,Y,W,H (at least 160x120), got '{v}'"));
+                    return Err(format!(
+                        "--coop-window expects X,Y,W,H (at least 160x120), got '{v}'"
+                    ));
                 }
                 coop.window = Some((p[0] as i32, p[1] as i32, p[2] as u32, p[3] as u32));
             }
             "--coop-gamepad" => {
                 let v = value("--coop-gamepad")?;
-                coop.gamepad = Some(v.parse::<u8>().map_err(|_| format!("--coop-gamepad expects a controller number, got '{v}'"))?);
+                coop.gamepad = Some(v.parse::<u8>().map_err(|_| {
+                    format!("--coop-gamepad expects a controller number, got '{v}'")
+                })?);
             }
             "--coop-name" => coop.name = Some(value("--coop-name")?),
             "--coop-character" => coop.character = Some(value("--coop-character")?.into()),
@@ -777,7 +782,9 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
                     u64::from_str_radix(v.trim(), 16)
                         .ok()
                         .filter(|k| *k != 0 && v.trim().len() == 16)
-                        .ok_or_else(|| "--coop-player-key expects 16 hex digits (not all zero)".to_string())?,
+                        .ok_or_else(|| {
+                            "--coop-player-key expects 16 hex digits (not all zero)".to_string()
+                        })?,
                 );
             }
             "--coop-log" => coop.log = Some(value("--coop-log")?.into()),
@@ -974,13 +981,21 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
         return Err("--coop-test-token is for UDP test runs; it does not apply to Steam".into());
     }
     if coop.load.is_some() && coop.host.is_none() {
-        return Err("--coop-load continues a party save as the host; use it with --coop-host".into());
+        return Err(
+            "--coop-load continues a party save as the host; use it with --coop-host".into(),
+        );
     }
     if coop.load.is_some() && (new_game || load_fos.is_some() || stage.is_some()) {
-        return Err("--coop-load starts from the party save; leave out --new-game, --load-fos and --stage".into());
+        return Err(
+            "--coop-load starts from the party save; leave out --new-game, --load-fos and --stage"
+                .into(),
+        );
     }
     if (coop.character.is_some() || coop.player_key.is_some()) && !coop.is_guest() {
-        return Err("--coop-character and --coop-player-key are the guest's; use them with --coop-join".into());
+        return Err(
+            "--coop-character and --coop-player-key are the guest's; use them with --coop-join"
+                .into(),
+        );
     }
     if coop.load.is_some() && positional.len() == 1 {
         positional.push(FROM_SAVE.to_string());
@@ -1006,10 +1021,14 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
     // character" for it (docs/COOP.md, "The start of a game").
     if coop.is_guest() {
         if new_game && (load_fos.is_some() || coop_load.is_some()) {
-            return Err("a guest's own character comes from --new-game or from a save, not both".into());
+            return Err(
+                "a guest's own character comes from --new-game or from a save, not both".into(),
+            );
         }
         if load_fos.is_some() && coop_load.is_some() {
-            return Err("give one of --load-fos and --coop-load for a guest's own character".into());
+            return Err(
+                "give one of --load-fos and --coop-load for a guest's own character".into(),
+            );
         }
         coop.own_new_game = std::mem::take(&mut new_game);
         coop.own_load = load_fos.take().or_else(|| coop_load.take());
@@ -1376,9 +1395,14 @@ mod tests {
 
     #[test]
     fn parses_the_party_save_options() {
-        let host = parse(&strings(&["Data", "--coop-host", "--coop-load", "Save.txt.partysave"]))
-            .unwrap()
-            .unwrap();
+        let host = parse(&strings(&[
+            "Data",
+            "--coop-host",
+            "--coop-load",
+            "Save.txt.partysave",
+        ]))
+        .unwrap()
+        .unwrap();
         assert_eq!(host.coop.load, Some(PathBuf::from("Save.txt.partysave")));
         assert_eq!(host.cell, FROM_SAVE, "the party save gives the place");
         let guest = parse(&strings(&[
@@ -1396,13 +1420,46 @@ mod tests {
         assert_eq!(guest.coop.player_key, Some(0xa11ce));
         let err = |a: &[&str]| parse(&strings(a)).unwrap_err();
         assert!(err(&["Data", "Cell", "--coop-load", "x"]).contains("--coop-host"));
-        assert!(err(&["Data", "--coop-host", "--coop-load", "x", "--new-game"]).contains("party save"));
-        assert!(err(&["Data", "--coop-host", "--coop-load", "x", "--load-fos", "a.fos"]).contains("party save"));
-        assert!(err(&["Data", "Cell", "--coop-host", "--coop-player-key", "00000000000a11ce"]).contains("guest"));
-        assert!(err(&["Data", "--coop-join", "h:1", "--coop-player-key", "abc"]).contains("16 hex"));
-        assert!(err(&["Data", "--coop-join", "h:1", "--coop-player-key", "0000000000000000"]).contains("16 hex"));
+        assert!(
+            err(&["Data", "--coop-host", "--coop-load", "x", "--new-game"]).contains("party save")
+        );
+        assert!(err(&[
+            "Data",
+            "--coop-host",
+            "--coop-load",
+            "x",
+            "--load-fos",
+            "a.fos"
+        ])
+        .contains("party save"));
+        assert!(err(&[
+            "Data",
+            "Cell",
+            "--coop-host",
+            "--coop-player-key",
+            "00000000000a11ce"
+        ])
+        .contains("guest"));
+        assert!(
+            err(&["Data", "--coop-join", "h:1", "--coop-player-key", "abc"]).contains("16 hex")
+        );
+        assert!(err(&[
+            "Data",
+            "--coop-join",
+            "h:1",
+            "--coop-player-key",
+            "0000000000000000"
+        ])
+        .contains("16 hex"));
         // an original save can still start a hosted campaign
-        let fos = parse(&strings(&["Data", "--coop-host", "--load-fos", "Save 1.fos"])).unwrap().unwrap();
+        let fos = parse(&strings(&[
+            "Data",
+            "--coop-host",
+            "--load-fos",
+            "Save 1.fos",
+        ]))
+        .unwrap()
+        .unwrap();
         assert_eq!(fos.load_fos, Some(PathBuf::from("Save 1.fos")));
         assert!(fos.coop.load.is_none());
     }
@@ -1447,14 +1504,25 @@ mod tests {
             .unwrap();
         assert_eq!(bare.coop.host, Some(COOP_DEFAULT_PORT));
         assert!(!bare.hud);
-        assert!(!parse(&strings(&["Data", "Cell"])).unwrap().unwrap().coop.active());
+        assert!(!parse(&strings(&["Data", "Cell"]))
+            .unwrap()
+            .unwrap()
+            .coop
+            .active());
     }
 
     #[test]
     fn a_guest_may_leave_out_the_cell() {
-        let g = parse(&strings(&["Data", "--coop-join", "10.0.0.5:4000", "--stage", "VCG01", "5"]))
-            .unwrap()
-            .unwrap();
+        let g = parse(&strings(&[
+            "Data",
+            "--coop-join",
+            "10.0.0.5:4000",
+            "--stage",
+            "VCG01",
+            "5",
+        ]))
+        .unwrap()
+        .unwrap();
         assert_eq!(g.cell, COOP_PLACE);
         assert_eq!(g.coop.join.as_deref(), Some("10.0.0.5:4000"));
         assert_eq!(g.stage, Some(("VCG01".to_string(), 5)));
@@ -1466,25 +1534,54 @@ mod tests {
 
     #[test]
     fn the_start_flags_mean_own_character_for_a_guest_and_the_normal_start_for_a_host() {
-        let host = parse(&strings(&["D", "--new-game", "--coop-host"])).unwrap().unwrap();
+        let host = parse(&strings(&["D", "--new-game", "--coop-host"]))
+            .unwrap()
+            .unwrap();
         assert!(host.coop.new_game);
-        assert_eq!(host.stage, Some(("VCG00".to_string(), 0)), "the opening starts at once");
+        assert_eq!(
+            host.stage,
+            Some(("VCG00".to_string(), 0)),
+            "the opening starts at once"
+        );
         assert_eq!(host.cell, "GSDocMitchellHouse");
-        let guest = parse(&strings(&["D", "--new-game", "--coop-join", "h"])).unwrap().unwrap();
+        let guest = parse(&strings(&["D", "--new-game", "--coop-join", "h"]))
+            .unwrap()
+            .unwrap();
         assert!(guest.coop.own_new_game && !guest.coop.new_game);
         assert_eq!(guest.stage, None, "a guest never sets the host's quest");
         assert_eq!(guest.cell, COOP_PLACE);
-        let g = parse(&strings(&["D", "--load-fos", "a.fos", "--coop-join", "h"])).unwrap().unwrap();
+        let g = parse(&strings(&["D", "--load-fos", "a.fos", "--coop-join", "h"]))
+            .unwrap()
+            .unwrap();
         assert_eq!(g.coop.own_load, Some(PathBuf::from("a.fos")));
         assert_eq!(g.load_fos, None, "the host's world is not replaced");
-        let g = parse(&strings(&["D", "--coop-load", "s.txt", "--coop-join", "h", "--coop-no-chargen"])).unwrap().unwrap();
+        let g = parse(&strings(&[
+            "D",
+            "--coop-load",
+            "s.txt",
+            "--coop-join",
+            "h",
+            "--coop-no-chargen",
+        ]))
+        .unwrap()
+        .unwrap();
         assert_eq!(g.coop.own_load, Some(PathBuf::from("s.txt")));
         assert!(g.coop.no_chargen);
-        let h = parse(&strings(&["D", "--coop-load", "s.txt", "--coop-host"])).unwrap().unwrap();
+        let h = parse(&strings(&["D", "--coop-load", "s.txt", "--coop-host"]))
+            .unwrap()
+            .unwrap();
         assert_eq!(h.coop.load, Some(PathBuf::from("s.txt")));
         assert_eq!(h.cell, FROM_SAVE);
         assert!(parse(&strings(&["D", "C", "--coop-load", "s.txt"])).is_err());
-        assert!(parse(&strings(&["D", "C", "--coop-host", "--coop-load", "s.txt", "--new-game"])).is_err());
+        assert!(parse(&strings(&[
+            "D",
+            "C",
+            "--coop-host",
+            "--coop-load",
+            "s.txt",
+            "--new-game"
+        ]))
+        .is_err());
         assert!(parse(&strings(&["D", "C", "--coop-host", "--coop-no-chargen"])).is_err());
     }
 
@@ -1494,7 +1591,10 @@ mod tests {
         assert!(err(&["D", "C", "--coop-host", "--coop-join", "h"]).contains("different roles"));
         assert!(err(&["D", "C", "--coop-net", "perfect"]).contains("need --coop-host"));
         assert!(err(&["D", "C", "--coop-host", "--coop-net", "weird"]).contains("--coop-net"));
-        assert!(err(&["D", "--coop-join", "h", "--new-game", "--load-fos", "a.fos"]).contains("not both"));
+        assert!(
+            err(&["D", "--coop-join", "h", "--new-game", "--load-fos", "a.fos"])
+                .contains("not both")
+        );
         assert!(err(&["D", "C", "--coop-host", "0"]).contains("port"));
         assert!(err(&["D", "C", "--coop-quit-after", "soon", "--coop-host"]).contains("seconds"));
         assert!(err(&["D", "C", "--coop-join"]).contains("needs a value"));
@@ -1502,33 +1602,70 @@ mod tests {
 
     #[test]
     fn help_overlay_flag_is_parsed() {
-        let a = parse(&strings(&["Data", "Cell", "--help-overlay"])).unwrap().unwrap();
+        let a = parse(&strings(&["Data", "Cell", "--help-overlay"]))
+            .unwrap()
+            .unwrap();
         assert!(a.help_overlay);
-        assert!(!parse(&strings(&["Data", "Cell"])).unwrap().unwrap().help_overlay);
+        assert!(
+            !parse(&strings(&["Data", "Cell"]))
+                .unwrap()
+                .unwrap()
+                .help_overlay
+        );
     }
 
     #[test]
     fn parses_the_steam_and_token_options() {
-        let h = parse(&strings(&["Data", "Cell", "--coop-host", "--coop-steam"])).unwrap().unwrap().coop;
+        let h = parse(&strings(&["Data", "Cell", "--coop-host", "--coop-steam"]))
+            .unwrap()
+            .unwrap()
+            .coop;
         assert!(h.steam && !h.steam_friend && h.host == Some(COOP_DEFAULT_PORT) && !h.is_guest());
         // a code for a Steam lobby: --coop-steam is optional (the code names it)
-        let g = parse(&strings(&["Data", "--coop-join", "NVRS-ABCDE", "--coop-steam"])).unwrap().unwrap();
+        let g = parse(&strings(&[
+            "Data",
+            "--coop-join",
+            "NVRS-ABCDE",
+            "--coop-steam",
+        ]))
+        .unwrap()
+        .unwrap();
         assert!(g.coop.steam && g.coop.is_guest());
         assert_eq!(g.cell, COOP_PLACE);
         // a friend needs no code and no cell
-        let f = parse(&strings(&["Data", "--coop-steam-friend"])).unwrap().unwrap();
+        let f = parse(&strings(&["Data", "--coop-steam-friend"]))
+            .unwrap()
+            .unwrap();
         assert!(f.coop.steam_friend && f.coop.steam && f.coop.active() && f.coop.is_guest());
         assert!(f.coop.join.is_none());
         assert_eq!(f.cell, COOP_PLACE);
         // test token
-        let t = parse(&strings(&["Data", "Cell", "--coop-join", "127.0.0.1:9", "--coop-test-token"])).unwrap().unwrap().coop;
+        let t = parse(&strings(&[
+            "Data",
+            "Cell",
+            "--coop-join",
+            "127.0.0.1:9",
+            "--coop-test-token",
+        ]))
+        .unwrap()
+        .unwrap()
+        .coop;
         assert!(t.test_token && !t.steam);
         // explicit host token
-        let k = parse(&strings(&["Data", "Cell", "--coop-host", "--coop-token", "000102030405060708090a0b0c0d0e0f"]))
-            .unwrap()
-            .unwrap()
-            .coop;
-        assert_eq!(k.token, Some([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]));
+        let k = parse(&strings(&[
+            "Data",
+            "Cell",
+            "--coop-host",
+            "--coop-token",
+            "000102030405060708090a0b0c0d0e0f",
+        ]))
+        .unwrap()
+        .unwrap()
+        .coop;
+        assert_eq!(
+            k.token,
+            Some([0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15])
+        );
     }
 
     #[test]
@@ -1539,11 +1676,35 @@ mod tests {
         assert!(err(&["D", "--coop-steam-friend", "--coop-join", "NVRS-AB"]).contains("by itself"));
         assert!(err(&["D", "C", "--coop-host", "--coop-steam-friend"]).contains("different roles"));
         assert!(err(&["D", "--coop-join", "h:1", "--coop-token", "00"]).contains("32 hex"));
-        assert!(err(&["D", "--coop-join", "h:1", "--coop-token", "000102030405060708090a0b0c0d0e0f"]).contains("with --coop-host"));
-        assert!(err(&["D", "C", "--coop-host", "--coop-steam", "--coop-test-token"]).contains("UDP test runs"));
-        assert!(err(&["D", "C", "--coop-host", "--coop-test-token", "--coop-token", "000102030405060708090a0b0c0d0e0f"])
-            .contains("give one"));
-        assert!(err(&["D", "--coop-steam-friend", "--new-game", "--coop-load", "s.txt"]).contains("not both"));
+        assert!(err(&[
+            "D",
+            "--coop-join",
+            "h:1",
+            "--coop-token",
+            "000102030405060708090a0b0c0d0e0f"
+        ])
+        .contains("with --coop-host"));
+        assert!(
+            err(&["D", "C", "--coop-host", "--coop-steam", "--coop-test-token"])
+                .contains("UDP test runs")
+        );
+        assert!(err(&[
+            "D",
+            "C",
+            "--coop-host",
+            "--coop-test-token",
+            "--coop-token",
+            "000102030405060708090a0b0c0d0e0f"
+        ])
+        .contains("give one"));
+        assert!(err(&[
+            "D",
+            "--coop-steam-friend",
+            "--new-game",
+            "--coop-load",
+            "s.txt"
+        ])
+        .contains("not both"));
         assert_eq!(parse_token_hex("zz"), None);
         assert_eq!(parse_token_hex(&"\u{e9}".repeat(16)), None);
     }

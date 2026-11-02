@@ -39,13 +39,18 @@ pub struct RulesBridge {
 
 /// Moves the local player to `place` (as a script's `MoveTo` does).
 pub fn warp_player(cx: Ctx, gs: &mut GameState, place: FormId) -> bool {
-    let Some((space, cell, position, heading)) = gs.place(cx.order, place) else { return false };
+    let Some((space, cell, position, heading)) = gs.place(cx.order, place) else {
+        return false;
+    };
     gs.player_world = (space != cell).then_some(space);
     gs.player_cell = Some(cell);
     gs.player_position = Some(position);
     gs.player_heading = heading;
     crate::script_functions::player_moved(gs);
-    gs.events.push(Event::MoveTo { what: PLAYER_REF, to: place });
+    gs.events.push(Event::MoveTo {
+        what: PLAYER_REF,
+        to: place,
+    });
     true
 }
 
@@ -63,14 +68,30 @@ impl RulesBridge {
     }
 
     /// Host: starts the story tether at `anchor` (a placed reference).
-    pub fn start_tether(&mut self, cx: Ctx, gs: &GameState, live: &mut HostLive, anchor: FormId, now_ms: u64) {
+    pub fn start_tether(
+        &mut self,
+        cx: Ctx,
+        gs: &GameState,
+        live: &mut HostLive,
+        anchor: FormId,
+        now_ms: u64,
+    ) {
         self.anchor = Some(anchor);
         if let Some((_, c, pos, heading)) = gs.place(cx.order, anchor) {
-            let zone = coop_core::roam::ZoneAnchor { cell: coop_core::ids::CellId(c.0), pos, radius: TETHER_RADIUS, heading };
+            let zone = coop_core::roam::ZoneAnchor {
+                cell: coop_core::ids::CellId(c.0),
+                pos,
+                radius: TETHER_RADIUS,
+                heading,
+            };
             live.roam.model.set_anchor(Some(zone));
         }
         let party = live.rules.party().to_vec();
-        let inside: Vec<PlayerId> = party.iter().copied().filter(|p| self.inside(cx, gs, live, anchor, *p)).collect();
+        let inside: Vec<PlayerId> = party
+            .iter()
+            .copied()
+            .filter(|p| self.inside(cx, gs, live, anchor, *p))
+            .collect();
         live.rules.tether.start(now_ms, anchor.0, &party, &inside);
         live.rules.tether_votes_fast_travel = true;
     }
@@ -83,17 +104,36 @@ impl RulesBridge {
         live.rules.tether_votes_fast_travel = false;
     }
 
-    fn inside(&self, cx: Ctx, gs: &GameState, live: &HostLive, anchor: FormId, p: PlayerId) -> bool {
-        let Some(_) = live.avatars.state(p) else { return true };
-        let Some((_, cell, pos, _)) = gs.place(cx.order, anchor) else { return true };
+    fn inside(
+        &self,
+        cx: Ctx,
+        gs: &GameState,
+        live: &HostLive,
+        anchor: FormId,
+        p: PlayerId,
+    ) -> bool {
+        let Some(_) = live.avatars.state(p) else {
+            return true;
+        };
+        let Some((_, cell, pos, _)) = gs.place(cx.order, anchor) else {
+            return true;
+        };
         // the scene model knows which cells each player has loaded: a grid
         // neighbour inside the radius is inside, another scene never is
-        live.roam.model.in_zone(p, coop_core::ids::CellId(cell.0), pos, TETHER_RADIUS)
+        live.roam
+            .model
+            .in_zone(p, coop_core::ids::CellId(cell.0), pos, TETHER_RADIUS)
     }
 
     /// Host, every frame: party distance to the tether anchor, combat flag,
     /// and whether the story stage is held.
-    pub fn host_frame(&mut self, cx: Ctx, gs: &mut GameState, live: &mut HostLive, now_ms: u64) -> Vec<(PlayerId, Msg)> {
+    pub fn host_frame(
+        &mut self,
+        cx: Ctx,
+        gs: &mut GameState,
+        live: &mut HostLive,
+        now_ms: u64,
+    ) -> Vec<(PlayerId, Msg)> {
         let mut outs = Vec::new();
         if now_ms >= self.next_scaling_ms {
             // join-time announcements can reach a guest still syncing: repeat
@@ -115,7 +155,12 @@ impl RulesBridge {
     }
 
     /// Host: opens a barrier for a game-defined transition; returns sends.
-    pub fn open_barrier(&mut self, live: &mut HostLive, tag: u32, now_ms: u64) -> (u32, Vec<(PlayerId, Msg)>) {
+    pub fn open_barrier(
+        &mut self,
+        live: &mut HostLive,
+        tag: u32,
+        now_ms: u64,
+    ) -> (u32, Vec<(PlayerId, Msg)>) {
         let (id, outs) = live.rules.open_barrier(tag, now_ms);
         let mut sends = Vec::new();
         for o in outs {
@@ -147,7 +192,12 @@ impl RulesBridge {
     /// Every machine, every frame: copies the scaling, reports the local
     /// player going down, and turns the client's notices into world changes.
     /// Returns messages for the host.
-    pub fn local_frame(&mut self, cx: Ctx, gs: &mut GameState, client: &mut RulesClient) -> Vec<Msg> {
+    pub fn local_frame(
+        &mut self,
+        cx: Ctx,
+        gs: &mut GameState,
+        client: &mut RulesClient,
+    ) -> Vec<Msg> {
         let mut out = Vec::new();
         gs.coop.live.scaling = Some(client.scaling);
         if gs.coop.live.down_pending {
@@ -182,7 +232,11 @@ impl RulesBridge {
                     warp_player(cx, gs, a);
                 }
             }
-            Notice::VoteDone { kind, param, approved } => apply_vote(&mut gs.coop.live, kind, param, approved),
+            Notice::VoteDone {
+                kind,
+                param,
+                approved,
+            } => apply_vote(&mut gs.coop.live, kind, param, approved),
             Notice::Wipe => {
                 gs.coop.live.wiped = true;
                 gs.coop.live.downed = false;

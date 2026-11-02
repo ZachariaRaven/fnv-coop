@@ -50,7 +50,10 @@ fn num(v: f32) -> String {
 /// `hacked.<terminal>` (lock-outs, or -1 when hacked) and `mines.<ref>`.
 fn objects_json(gs: &GameState, order: &LoadOrder) -> String {
     let obj = |m: &BTreeMap<String, String>| -> String {
-        let parts: Vec<String> = m.iter().map(|(k, v)| format!("\"{}\":{}", esc(k), v)).collect();
+        let parts: Vec<String> = m
+            .iter()
+            .map(|(k, v)| format!("\"{}\":{}", esc(k), v))
+            .collect();
         format!("{{{}}}", parts.join(","))
     };
     let mut locks: BTreeMap<String, String> = BTreeMap::new();
@@ -62,12 +65,25 @@ fn objects_json(gs: &GameState, order: &LoadOrder) -> String {
     for f in gs.broken_locks.keys().filter(|f| !gs.locks.contains_key(f)) {
         locks.insert(name(order, *f), "-2".into());
     }
-    let open: BTreeMap<String, String> =
-        gs.set_by_scripts.open.iter().map(|(f, o)| (name(order, *f), o.to_string())).collect();
+    let open: BTreeMap<String, String> = gs
+        .set_by_scripts
+        .open
+        .iter()
+        .map(|(f, o)| (name(order, *f), o.to_string()))
+        .collect();
     let hacked: BTreeMap<String, String> = gs
         .terminal_states
         .iter()
-        .map(|(f, t)| (name(order, *f), if t.hacked { "-1".to_string() } else { t.lockouts.to_string() }))
+        .map(|(f, t)| {
+            (
+                name(order, *f),
+                if t.hacked {
+                    "-1".to_string()
+                } else {
+                    t.lockouts.to_string()
+                },
+            )
+        })
         .collect();
     let mut mines: BTreeMap<String, String> = BTreeMap::new();
     for f in &gs.more.mines.disarmed {
@@ -99,27 +115,52 @@ fn slot_key(slot: u8) -> String {
 fn campaign_json(gs: &GameState, order: &LoadOrder) -> String {
     use world::coop::campaign::extra::extra_of;
     let c = &gs.coop.campaign;
-    let mut slots: Vec<u8> = gs.coop.bank.parked.keys().copied().filter(|s| *s != 255).collect();
+    let mut slots: Vec<u8> = gs
+        .coop
+        .bank
+        .parked
+        .keys()
+        .copied()
+        .filter(|s| *s != 255)
+        .collect();
     if gs.coop.bank.active != 255 {
         slots.push(gs.coop.bank.active);
     }
     slots.sort_unstable();
     let obj = |m: BTreeMap<String, String>| -> String {
-        let parts: Vec<String> = m.iter().map(|(k, v)| format!("\"{}\":{}", esc(k), v)).collect();
+        let parts: Vec<String> = m
+            .iter()
+            .map(|(k, v)| format!("\"{}\":{}", esc(k), v))
+            .collect();
         format!("{{{}}}", parts.join(","))
     };
-    let (mut xp, mut followers, mut storage, mut objvars, mut down) =
-        (BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), BTreeMap::new(), BTreeMap::new());
+    let (mut xp, mut followers, mut storage, mut objvars, mut down) = (
+        BTreeMap::new(),
+        BTreeMap::new(),
+        BTreeMap::new(),
+        BTreeMap::new(),
+        BTreeMap::new(),
+    );
     for s in &slots {
         let key = slot_key(*s);
         if let Some(sh) = gs.shadow_of(*s) {
-            xp.insert(key.clone(), num(sh.actor_values.get(&world::experience::XP).copied().unwrap_or(0.0) as f32));
+            xp.insert(
+                key.clone(),
+                num(sh
+                    .actor_values
+                    .get(&world::experience::XP)
+                    .copied()
+                    .unwrap_or(0.0) as f32),
+            );
             followers.insert(key.clone(), sh.teammates.len().to_string());
         }
         let x = extra_of(gs, *s);
         let mut st: BTreeMap<String, String> = BTreeMap::new();
         for ((h, i), n) in &x.storage {
-            st.insert(format!("{}_{}", name(order, *h), name(order, *i)), n.to_string());
+            st.insert(
+                format!("{}_{}", name(order, *h), name(order, *i)),
+                n.to_string(),
+            );
         }
         storage.insert(key.clone(), obj(st));
         let mut ov: BTreeMap<String, String> = BTreeMap::new();
@@ -132,12 +173,29 @@ fn campaign_json(gs: &GameState, order: &LoadOrder) -> String {
     let owners: BTreeMap<String, String> = gs
         .teammates
         .iter()
-        .chain(gs.coop.bank.parked.values().flat_map(|p| p.teammates.iter()))
-        .filter_map(|n| world::coop::campaign::owners::owner_of(gs, *n).map(|o| (name(order, *n), format!("\"{}\"", slot_key(o)))))
+        .chain(
+            gs.coop
+                .bank
+                .parked
+                .values()
+                .flat_map(|p| p.teammates.iter()),
+        )
+        .filter_map(|n| {
+            world::coop::campaign::owners::owner_of(gs, *n)
+                .map(|o| (name(order, *n), format!("\"{}\"", slot_key(o))))
+        })
         .collect();
-    let forks: BTreeMap<String, String> =
-        c.forks.done.iter().map(|(q, ch, ok)| (format!("{}_{ch}", name(order, *q)), ok.to_string())).collect();
-    let probes: BTreeMap<String, String> = c.probes.iter().map(|(k, v)| (k.clone(), num(*v as f32))).collect();
+    let forks: BTreeMap<String, String> = c
+        .forks
+        .done
+        .iter()
+        .map(|(q, ch, ok)| (format!("{}_{ch}", name(order, *q)), ok.to_string()))
+        .collect();
+    let probes: BTreeMap<String, String> = c
+        .probes
+        .iter()
+        .map(|(k, v)| (k.clone(), num(*v as f32)))
+        .collect();
     format!(
         "{{\"xp\":{},\"followers\":{},\"owner\":{},\"storage\":{},\"objvars\":{},\"down\":{},\"forks\":{},\"probes\":{},\"paid\":{},\"kills_settled\":{},\"ff_blocked\":{},\"commands_refused\":{},\"respawned\":{},\"warped\":{},\"revived\":{}}}",
         obj(xp),
@@ -160,7 +218,14 @@ fn campaign_json(gs: &GameState, order: &LoadOrder) -> String {
 
 /// Builds the dump text. `t` is seconds since process start, `seq` counts
 /// dumps, `root` is [`crate::Session::state_root`] of `gs`.
-pub fn state_json(gs: &GameState, order: &LoadOrder, role: Role, t: f64, seq: u64, root: u64) -> String {
+pub fn state_json(
+    gs: &GameState,
+    order: &LoadOrder,
+    role: Role,
+    t: f64,
+    seq: u64,
+    root: u64,
+) -> String {
     state_json_live(gs, order, role, t, seq, root, None)
 }
 
@@ -217,7 +282,16 @@ pub fn state_json_live(
     root: u64,
     view: Option<&LiveView>,
 ) -> String {
-    state_json_full(gs, order, role, t, seq, root, view, &LiveCounters::default())
+    state_json_full(
+        gs,
+        order,
+        role,
+        t,
+        seq,
+        root,
+        view,
+        &LiveCounters::default(),
+    )
 }
 
 /// [`state_json_live`] with the glue's counters.
@@ -234,34 +308,71 @@ pub fn state_json_full(
 ) -> String {
     let who = if role == Role::Host { "host" } else { "guest" };
     let mut quests: BTreeMap<String, (u16, bool, bool)> = BTreeMap::new();
-    let ids = gs.stages.keys().chain(gs.running.iter()).chain(gs.completed.iter());
-    let own = |f: &FormId| gs.coop.bank.plan.as_ref().is_some_and(|p| p.quests.contains(f));
+    let ids = gs
+        .stages
+        .keys()
+        .chain(gs.running.iter())
+        .chain(gs.completed.iter());
+    let own = |f: &FormId| {
+        gs.coop
+            .bank
+            .plan
+            .as_ref()
+            .is_some_and(|p| p.quests.contains(f))
+    };
     for f in ids.filter(|f| !own(f)) {
         quests.insert(
             name(order, *f),
-            (gs.stages.get(f).copied().unwrap_or(0), gs.running.contains(f), gs.completed.contains(f)),
+            (
+                gs.stages.get(f).copied().unwrap_or(0),
+                gs.running.contains(f),
+                gs.completed.contains(f),
+            ),
         );
     }
-    let globals: BTreeMap<String, f32> = gs.globals.iter().map(|(f, v)| (name(order, *f), *v)).collect();
+    let globals: BTreeMap<String, f32> = gs
+        .globals
+        .iter()
+        .map(|(f, v)| (name(order, *f), *v))
+        .collect();
     let mut holders: BTreeMap<String, BTreeMap<String, i32>> = BTreeMap::new();
     for ((holder, item), n) in &gs.items {
         if *n == 0 {
             continue;
         }
-        let key = if *holder == PLAYER_REF { "player".to_string() } else { name(order, *holder) };
-        holders.entry(key).or_default().insert(name(order, *item), *n);
+        let key = if *holder == PLAYER_REF {
+            "player".to_string()
+        } else {
+            name(order, *holder)
+        };
+        holders
+            .entry(key)
+            .or_default()
+            .insert(name(order, *item), *n);
     }
     let player = holders.remove("player").unwrap_or_default();
-    let disabled: BTreeMap<String, bool> =
-        gs.disabled.iter().filter(|(_, d)| **d).map(|(f, d)| (name(order, *f), *d)).collect();
+    let disabled: BTreeMap<String, bool> = gs
+        .disabled
+        .iter()
+        .filter(|(_, d)| **d)
+        .map(|(f, d)| (name(order, *f), *d))
+        .collect();
 
     let obj = |m: &BTreeMap<String, String>| -> String {
-        let parts: Vec<String> = m.iter().map(|(k, v)| format!("\"{}\":{}", esc(k), v)).collect();
+        let parts: Vec<String> = m
+            .iter()
+            .map(|(k, v)| format!("\"{}\":{}", esc(k), v))
+            .collect();
         format!("{{{}}}", parts.join(","))
     };
     let q: BTreeMap<String, String> = quests
         .into_iter()
-        .map(|(k, (s, r, c))| (k, format!("{{\"stage\":{s},\"running\":{r},\"completed\":{c}}}")))
+        .map(|(k, (s, r, c))| {
+            (
+                k,
+                format!("{{\"stage\":{s},\"running\":{r},\"completed\":{c}}}"),
+            )
+        })
         .collect();
     let g: BTreeMap<String, String> = globals.into_iter().map(|(k, v)| (k, num(v))).collect();
     let items_of = |m: &BTreeMap<String, i32>| -> String {
@@ -270,12 +381,23 @@ pub fn state_json_full(
     let mut items: BTreeMap<String, String> = BTreeMap::new();
     let slot_items = |slot: u8| -> Option<String> {
         let sh = gs.shadow_of(slot)?;
-        let m: BTreeMap<String, i32> = sh.items.iter().filter(|(_, n)| **n != 0).map(|(i, n)| (name(order, *i), *n)).collect();
+        let m: BTreeMap<String, i32> = sh
+            .items
+            .iter()
+            .filter(|(_, n)| **n != 0)
+            .map(|(i, n)| (name(order, *i), *n))
+            .collect();
         Some(items_of(&m))
     };
     if gs.coop.bank.enabled() {
-        items.insert("host".into(), slot_items(0).unwrap_or_else(|| items_of(&BTreeMap::new())));
-        items.insert("guest".into(), slot_items(1).unwrap_or_else(|| items_of(&BTreeMap::new())));
+        items.insert(
+            "host".into(),
+            slot_items(0).unwrap_or_else(|| items_of(&BTreeMap::new())),
+        );
+        items.insert(
+            "guest".into(),
+            slot_items(1).unwrap_or_else(|| items_of(&BTreeMap::new())),
+        );
         for slot in 2..=8u8 {
             if let Some(text) = slot_items(slot) {
                 items.insert(format!("guest{slot}"), text);
@@ -290,7 +412,16 @@ pub fn state_json_full(
     }
     let mut pos: BTreeMap<String, String> = BTreeMap::new();
     if let Some(p) = gs.player_position {
-        pos.insert(who.into(), format!("[{},{},{},{}]", num(p[0]), num(p[1]), num(p[2]), num(gs.player_heading)));
+        pos.insert(
+            who.into(),
+            format!(
+                "[{},{},{},{}]",
+                num(p[0]),
+                num(p[1]),
+                num(p[2]),
+                num(gs.player_heading)
+            ),
+        );
     }
     if let Some(v) = view {
         for a in &v.avatars {
@@ -300,15 +431,29 @@ pub fn state_json_full(
                 n => format!("guest{n}"),
             };
             if key != who {
-                pos.insert(key, format!("[{},{},{},{}]", num(a.pos[0]), num(a.pos[1]), num(a.pos[2]), num(a.heading)));
+                pos.insert(
+                    key,
+                    format!(
+                        "[{},{},{},{}]",
+                        num(a.pos[0]),
+                        num(a.pos[1]),
+                        num(a.pos[2]),
+                        num(a.heading)
+                    ),
+                );
             }
         }
     }
-    let dead: BTreeMap<String, String> = gs.dead.iter().map(|d| (name(order, *d), "true".to_string())).collect();
+    let dead: BTreeMap<String, String> = gs
+        .dead
+        .iter()
+        .map(|d| (name(order, *d), "true".to_string()))
+        .collect();
     // the actor table: who each actor is, whether it lives, who owns it
     let me = view.map_or(PlayerId::HOST, |v| v.me);
     let mut actor_rows: BTreeMap<String, String> = BTreeMap::new();
-    let (mut owned_local, mut remote, mut dormant, mut creatures, mut creatures_alive) = (0usize, 0usize, 0usize, 0usize, 0usize);
+    let (mut owned_local, mut remote, mut dormant, mut creatures, mut creatures_alive) =
+        (0usize, 0usize, 0usize, 0usize, 0usize);
     for r in view.map(|v| v.actor_table.as_slice()).unwrap_or(&[]) {
         let who = match r.owner {
             None => {
@@ -326,14 +471,22 @@ pub fn state_json_full(
         };
         let dead = gs.dead.contains(&r.id) || !r.alive;
         let base = world::more_functions::placed::base_now(order, gs, r.id);
-        let creature = base.and_then(|b| order.get(b)).is_some_and(|x| x.entry.header.kind.as_bytes() == b"CREA");
+        let creature = base
+            .and_then(|b| order.get(b))
+            .is_some_and(|x| x.entry.header.kind.as_bytes() == b"CREA");
         if creature {
             creatures += 1;
             if !dead {
                 creatures_alive += 1;
             }
         }
-        actor_rows.insert(name(order, r.id), format!("{{\"alive\":{},\"owner\":\"{who}\",\"creature\":{creature}}}", !dead));
+        actor_rows.insert(
+            name(order, r.id),
+            format!(
+                "{{\"alive\":{},\"owner\":\"{who}\",\"creature\":{creature}}}",
+                !dead
+            ),
+        );
     }
     let roam = roam_json(view, gs, who);
     let live = format!(
@@ -380,7 +533,10 @@ pub fn state_json_full(
         "{{\"active\":{},\"id\":{},\"phase\":{},\"kind\":{},\"locks\":{},\"controls\":{},\"opened\":{},\"closed\":{},\"last_reason\":{},\"movies\":{},\"slide\":{},\"committed\":{},\"elapsed_ms\":{}}}",
         sc.active, sc.id, sc.phase, sc.kind, sc.locks, coop_core::scene::Locks::from_flags(&gs.controls_off).0, sc.opened, sc.closed, sc.last_reason, sc.movies, sc.slide, sc.committed, sc.elapsed_ms
     );
-    let time = format!("{{\"skips\":{},\"hours\":{}}}", sc.time_skips, sc.skip_hours);
+    let time = format!(
+        "{{\"skips\":{},\"hours\":{}}}",
+        sc.time_skips, sc.skip_hours
+    );
     let interact = gs.coop.interact.counters_json();
     let objects = objects_json(gs, order);
     // Per-player quests, one object per slot (same keys as `items`).
@@ -391,18 +547,25 @@ pub fn state_json_full(
         // 255 is the unassigned placeholder, never a player
         slots.retain(|s| *s != 255);
         for slot in slots {
-            let Some(sh) = gs.shadow_of(slot) else { continue };
+            let Some(sh) = gs.shadow_of(slot) else {
+                continue;
+            };
             let mut m: BTreeMap<String, String> = BTreeMap::new();
             for (f, bits) in &sh.quest_flags {
                 let st = sh.quest_stage.get(f).copied().unwrap_or(0);
                 m.insert(
                     name(order, *f),
-                    format!("{{\"stage\":{st},\"running\":{},\"completed\":{}}}", bits & 1 != 0, bits & 2 != 0),
+                    format!(
+                        "{{\"stage\":{st},\"running\":{},\"completed\":{}}}",
+                        bits & 1 != 0,
+                        bits & 2 != 0
+                    ),
                 );
             }
             for (f, st) in &sh.quest_stage {
-                m.entry(name(order, *f))
-                    .or_insert_with(|| format!("{{\"stage\":{st},\"running\":false,\"completed\":false}}"));
+                m.entry(name(order, *f)).or_insert_with(|| {
+                    format!("{{\"stage\":{st},\"running\":false,\"completed\":false}}")
+                });
             }
             let key = match slot {
                 0 => "host".to_string(),
@@ -412,9 +575,16 @@ pub fn state_json_full(
             pq.insert(key, obj(&m));
         }
     }
-    let start = counters.start.as_ref().map(|i| format!(",\"start\":{}", i.json())).unwrap_or_default();
+    let start = counters
+        .start
+        .as_ref()
+        .map(|i| format!(",\"start\":{}", i.json()))
+        .unwrap_or_default();
     let combat = gs.coop.live.combat.stats.json();
-    let d: BTreeMap<String, String> = disabled.into_iter().map(|(k, v)| (k, v.to_string())).collect();
+    let d: BTreeMap<String, String> = disabled
+        .into_iter()
+        .map(|(k, v)| (k, v.to_string()))
+        .collect();
     let campaign = campaign_json(gs, order);
     format!(
         "{{\"schema\":1,\"role\":\"{who}\",\"t\":{t:.3},\"seq\":{seq},\"quests\":{},\"player_quests\":{},\"globals\":{},\"items\":{},\"positions\":{},\"disabled\":{},\"dead\":{},\"live\":{live},\"actors\":{},\"scene\":{scene},\"time\":{time},\"interact\":{interact},\"objects\":{objects},\"campaign\":{campaign},\"combat\":{combat},\"hash\":{{\"shared\":\"{root:016x}\"}}{start}}}\n",
@@ -437,15 +607,28 @@ fn roam_json(view: Option<&LiveView>, gs: &GameState, who: &str) -> String {
         1 => "guest".to_string(),
         n => format!("guest{n}"),
     };
-    let Some(v) = view else { return "{}".to_string() };
+    let Some(v) = view else {
+        return "{}".to_string();
+    };
     let s = &v.roam;
-    let mut cells: BTreeMap<String, String> = s.peers.iter().map(|(p, c, _)| (key(p.0), c.to_string())).collect();
+    let mut cells: BTreeMap<String, String> = s
+        .peers
+        .iter()
+        .map(|(p, c, _)| (key(p.0), c.to_string()))
+        .collect();
     if let Some(c) = gs.player_cell {
         cells.insert(who.to_string(), c.0.to_string());
     }
-    let owned: BTreeMap<String, String> = s.owned.iter().map(|(p, n)| (key(p.0), n.to_string())).collect();
+    let owned: BTreeMap<String, String> = s
+        .owned
+        .iter()
+        .map(|(p, n)| (key(p.0), n.to_string()))
+        .collect();
     let obj = |m: &BTreeMap<String, String>| -> String {
-        let parts: Vec<String> = m.iter().map(|(k, v)| format!("\"{}\":{}", esc(k), v)).collect();
+        let parts: Vec<String> = m
+            .iter()
+            .map(|(k, v)| format!("\"{}\":{}", esc(k), v))
+            .collect();
         format!("{{{}}}", parts.join(","))
     };
     format!(

@@ -10,7 +10,9 @@
 
 use std::collections::BTreeMap;
 
-use coop_policy::lifecycle::{down_outcome, is_wipe, join_plan, wipe_outcome, DownOutcome, JoinPlan};
+use coop_policy::lifecycle::{
+    down_outcome, is_wipe, join_plan, wipe_outcome, DownOutcome, JoinPlan,
+};
 use coop_policy::{AllDown, Decision, Event, EventKind, Origin, PlayerMask};
 use esm::{FormId, LoadOrder};
 
@@ -70,12 +72,23 @@ pub fn player_down(gs: &mut GameState, slot: u8, quest: Option<FormId>) -> Optio
     let out = down_outcome(&t, row);
     // the gate counts the event and tells which class the down belongs to
     if let Some(g) = gs.coop.gate.take() {
-        let ev = Event { quest: quest.map_or(0, |q| q.0), origin: Origin::Host, kind: EventKind::PlayerDown { slot } };
+        let ev = Event {
+            quest: quest.map_or(0, |q| q.0),
+            origin: Origin::Host,
+            kind: EventKind::PlayerDown { slot },
+        };
         let d = g.decide(gs, &ev);
         let _ = matches!(d, Decision::PerPlayerShadow { .. });
         gs.coop.gate = Some(g);
     }
-    gs.coop.campaign.down.down.insert(slot, DownInfo { since_s: 0.0, outcome: out.clone(), quest });
+    gs.coop.campaign.down.down.insert(
+        slot,
+        DownInfo {
+            since_s: 0.0,
+            outcome: out.clone(),
+            quest,
+        },
+    );
     if out == DownOutcome::Respawn {
         respawn(gs, slot);
     }
@@ -112,12 +125,19 @@ pub fn respawn(gs: &mut GameState, slot: u8) {
 }
 
 fn downed_mask(gs: &GameState) -> PlayerMask {
-    gs.coop.campaign.down.down.keys().fold(PlayerMask::NONE, |m, s| m.or(PlayerMask::of(*s)))
+    gs.coop
+        .campaign
+        .down
+        .down
+        .keys()
+        .fold(PlayerMask::NONE, |m, s| m.or(PlayerMask::of(*s)))
 }
 
 /// Records the checkpoint whenever the whole party stands in one cell.
 fn note_checkpoint(gs: &mut GameState) {
-    let Some(g) = gs.coop.gate.as_ref() else { return };
+    let Some(g) = gs.coop.gate.as_ref() else {
+        return;
+    };
     let present = g.present;
     let mut cell: Option<FormId> = None;
     for s in 0..8u8 {
@@ -131,12 +151,18 @@ fn note_checkpoint(gs: &mut GameState) {
             _ => return,
         }
     }
-    let (Some(cell), Some(host)) = (cell, gs.shadow_of(0)) else { return };
+    let (Some(cell), Some(host)) = (cell, gs.shadow_of(0)) else {
+        return;
+    };
     if let Some(p) = host.position {
         gs.coop.campaign.down.checkpoint = Some(Checkpoint {
             cell,
             world: host.world,
-            pos: [f32::from_bits(p[0]), f32::from_bits(p[1]), f32::from_bits(p[2])],
+            pos: [
+                f32::from_bits(p[0]),
+                f32::from_bits(p[1]),
+                f32::from_bits(p[2]),
+            ],
         });
     }
 }
@@ -163,7 +189,11 @@ pub fn frame(order: &LoadOrder, gs: &mut GameState, dt: f32) {
         .collect();
     for (slot, cps) in waiting {
         let here = gs.shadow_of(slot).and_then(|s| s.cell);
-        if cps.iter().filter_map(|c| resolve(order, c)).any(|c| Some(c) == here) {
+        if cps
+            .iter()
+            .filter_map(|c| resolve(order, c))
+            .any(|c| Some(c) == here)
+        {
             revive(gs, slot);
         }
     }
@@ -178,7 +208,11 @@ pub fn frame(order: &LoadOrder, gs: &mut GameState, dt: f32) {
         .map(|(s, _)| *s)
         .collect();
     // a wipe is decided before individual expiries
-    let present = gs.coop.gate.as_ref().map_or(PlayerMask::NONE, |g| g.present);
+    let present = gs
+        .coop
+        .gate
+        .as_ref()
+        .map_or(PlayerMask::NONE, |g| g.present);
     if is_wipe(present, downed_mask(gs)) {
         match wipe_outcome(&t) {
             AllDown::ReloadHostSave => {
@@ -231,12 +265,19 @@ fn warp_to_checkpoint(gs: &mut GameState, slot: u8) {
 }
 
 fn late_joiners(gs: &mut GameState, t: &coop_policy::PolicyTable) {
-    let Some(g) = gs.coop.gate.as_ref() else { return };
+    let Some(g) = gs.coop.gate.as_ref() else {
+        return;
+    };
     if g.held().is_empty() || g.scenes_active() {
         return;
     }
     let warp = join_plan(t, false) == JoinPlan::WarpToZone;
-    let released = gs.coop.gate.as_mut().map(|g| g.release_joiners()).unwrap_or(PlayerMask::NONE);
+    let released = gs
+        .coop
+        .gate
+        .as_mut()
+        .map(|g| g.release_joiners())
+        .unwrap_or(PlayerMask::NONE);
     if warp {
         for s in 0..8u8 {
             if released.contains(s) {

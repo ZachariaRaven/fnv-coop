@@ -12,7 +12,10 @@ use std::fmt;
 
 /// Parse `text` as one JSON value and deserialize it into `T`.
 pub fn from_str<T: DeserializeOwned>(text: &str) -> Result<T, Error> {
-    let mut p = Parser { s: text.as_bytes(), i: 0 };
+    let mut p = Parser {
+        s: text.as_bytes(),
+        i: 0,
+    };
     p.ws();
     let v = p.value(0)?;
     p.ws();
@@ -197,11 +200,16 @@ impl Parser<'_> {
                 return Ok(Value::I(n));
             }
         }
-        text.parse::<f64>().map(Value::F).map_err(|_| self.err("invalid number"))
+        text.parse::<f64>()
+            .map(Value::F)
+            .map_err(|_| self.err("invalid number"))
     }
 
     fn hex4(&mut self) -> Result<u32, Error> {
-        let h = self.s.get(self.i..self.i + 4).ok_or_else(|| self.err("EOF in escape"))?;
+        let h = self
+            .s
+            .get(self.i..self.i + 4)
+            .ok_or_else(|| self.err("EOF in escape"))?;
         let h = std::str::from_utf8(h).map_err(|_| self.err("invalid escape"))?;
         let n = u32::from_str_radix(h, 16).map_err(|_| self.err("invalid escape"))?;
         self.i += 4;
@@ -212,12 +220,18 @@ impl Parser<'_> {
         self.i += 1; // opening quote
         let mut out = Vec::new();
         loop {
-            let b = *self.s.get(self.i).ok_or_else(|| self.err("EOF while parsing a string"))?;
+            let b = *self
+                .s
+                .get(self.i)
+                .ok_or_else(|| self.err("EOF while parsing a string"))?;
             self.i += 1;
             match b {
                 b'"' => break,
                 b'\\' => {
-                    let e = *self.s.get(self.i).ok_or_else(|| self.err("EOF in escape"))?;
+                    let e = *self
+                        .s
+                        .get(self.i)
+                        .ok_or_else(|| self.err("EOF in escape"))?;
                     self.i += 1;
                     let c = match e {
                         b'"' => '"',
@@ -312,7 +326,9 @@ impl<'de> de::Deserializer<'de> for Value {
                 let (k, val) = o.pop().expect("one entry");
                 v.visit_enum(Variant { key: k, value: val })
             }
-            _ => Err(de::Error::custom("expected a string or a map with one entry for an enum")),
+            _ => Err(de::Error::custom(
+                "expected a string or a map with one entry for an enum",
+            )),
         }
     }
 
@@ -331,7 +347,10 @@ struct Variant {
 impl<'de> de::EnumAccess<'de> for Variant {
     type Error = Error;
     type Variant = Value;
-    fn variant_seed<S: de::DeserializeSeed<'de>>(self, seed: S) -> Result<(S::Value, Value), Error> {
+    fn variant_seed<S: de::DeserializeSeed<'de>>(
+        self,
+        seed: S,
+    ) -> Result<(S::Value, Value), Error> {
         let key: serde::de::value::StringDeserializer<Error> = self.key.into_deserializer();
         Ok((seed.deserialize(key)?, self.value))
     }
@@ -351,7 +370,11 @@ impl<'de> de::VariantAccess<'de> for Value {
     fn tuple_variant<V: Visitor<'de>>(self, _len: usize, v: V) -> Result<V::Value, Error> {
         de::Deserializer::deserialize_seq(self, v)
     }
-    fn struct_variant<V: Visitor<'de>>(self, _fields: &'static [&'static str], v: V) -> Result<V::Value, Error> {
+    fn struct_variant<V: Visitor<'de>>(
+        self,
+        _fields: &'static [&'static str],
+        v: V,
+    ) -> Result<V::Value, Error> {
         de::Deserializer::deserialize_map(self, v)
     }
 }
@@ -393,7 +416,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(r.name, "a\"b\\c\u{e9}\u{1F600}");
-        assert_eq!((r.n, r.neg, r.f, r.opt, r.none), (7, -3, 15.0, Some(4), None));
+        assert_eq!(
+            (r.n, r.neg, r.f, r.opt, r.none),
+            (7, -3, 15.0, Some(4), None)
+        );
         assert!(r.missing.is_empty());
         assert_eq!(r.list, [Kind::Shared, Kind::PerPlayer]);
         assert_eq!(r.map[&Kind::PerPlayer], true);
@@ -414,7 +440,10 @@ mod tests {
             "{} x",
             "tru",
         ] {
-            assert!(from_str::<serde::de::IgnoredAny>(bad).is_err(), "accepted {bad:?}");
+            assert!(
+                from_str::<serde::de::IgnoredAny>(bad).is_err(),
+                "accepted {bad:?}"
+            );
         }
         let deep = "[".repeat(MAX_DEPTH + 2) + &"]".repeat(MAX_DEPTH + 2);
         assert!(from_str::<serde::de::IgnoredAny>(&deep).is_err());

@@ -404,8 +404,11 @@ fn use_object(
         // (`Runner::run_item_scripts`; Caravan cards join the player's
         // cards and leave the inventory).
         // co-op: first claim wins; a guest asks the host, which gives it to them
-        if state.coop_route(world::coop::interact::pickup_act(r.reference, r.base, r.count.max(1) as u32))
-            == world::coop::interact::Route::Remote
+        if state.coop_route(world::coop::interact::pickup_act(
+            r.reference,
+            r.base,
+            r.count.max(1) as u32,
+        )) == world::coop::interact::Route::Remote
         {
             return Some(Used::Taken);
         }

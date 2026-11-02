@@ -20,12 +20,20 @@ impl Rect {
         if p.len() != 4 {
             return Err(format!("'{s}' is not X,Y,W,H"));
         }
-        let n = |i: usize| p[i].parse::<i32>().map_err(|_| format!("'{}' is not a number in '{s}'", p[i]));
+        let n = |i: usize| {
+            p[i].parse::<i32>()
+                .map_err(|_| format!("'{}' is not a number in '{s}'", p[i]))
+        };
         let (x, y, w, h) = (n(0)?, n(1)?, n(2)?, n(3)?);
         if w < 160 || h < 120 {
             return Err(format!("a window of {w}x{h} is too small"));
         }
-        Ok(Rect { x, y, w: w as u32, h: h as u32 })
+        Ok(Rect {
+            x,
+            y,
+            w: w as u32,
+            h: h as u32,
+        })
     }
 
     /// The viewer's argument text.
@@ -46,11 +54,21 @@ pub struct Couch {
 impl Couch {
     /// `SEAT/PLAYERS`, e.g. `1/4` (seat 0 is the first player).
     pub fn parse(s: &str) -> Result<Couch, String> {
-        let (a, b) = s.split_once('/').ok_or_else(|| format!("'{s}' is not SEAT/PLAYERS (for example 1/4)"))?;
-        let slot: u8 = a.trim().parse().map_err(|_| format!("'{a}' is not a slot number"))?;
-        let players: u8 = b.trim().parse().map_err(|_| format!("'{b}' is not a player count"))?;
+        let (a, b) = s
+            .split_once('/')
+            .ok_or_else(|| format!("'{s}' is not SEAT/PLAYERS (for example 1/4)"))?;
+        let slot: u8 = a
+            .trim()
+            .parse()
+            .map_err(|_| format!("'{a}' is not a slot number"))?;
+        let players: u8 = b
+            .trim()
+            .parse()
+            .map_err(|_| format!("'{b}' is not a player count"))?;
         if !(1..=4).contains(&players) || slot >= players {
-            return Err(format!("seat {slot} of {players}: players must be 1 to 4 and the seat 0 to players-1"));
+            return Err(format!(
+                "seat {slot} of {players}: players must be 1 to 4 and the seat 0 to players-1"
+            ));
         }
         Ok(Couch { slot, players })
     }
@@ -128,7 +146,11 @@ impl Extras {
             a.push("--coop-gamepad".into());
             a.push(g.to_string());
         }
-        let voice = self.voice.or_else(|| self.couch.filter(|c| !c.owns_voice()).map(|_| VoiceMode::Off));
+        let voice = self.voice.or_else(|| {
+            self.couch
+                .filter(|c| !c.owns_voice())
+                .map(|_| VoiceMode::Off)
+        });
         if let Some(v) = voice {
             a.push("--coop-voice".into());
             a.push(v.arg().into());
@@ -150,12 +172,26 @@ impl Extras {
 /// two on top and one centred below; four are quarters.
 pub fn layout(players: u8, w: u32, h: u32) -> Vec<Rect> {
     let (hw, hh) = (w / 2, h / 2);
-    let r = |x: u32, y: u32, w: u32, h: u32| Rect { x: x as i32, y: y as i32, w, h };
+    let r = |x: u32, y: u32, w: u32, h: u32| Rect {
+        x: x as i32,
+        y: y as i32,
+        w,
+        h,
+    };
     match players {
         0 | 1 => vec![r(0, 0, w, h)],
         2 => vec![r(0, 0, w, hh), r(0, hh, w, h - hh)],
-        3 => vec![r(0, 0, hw, hh), r(hw, 0, w - hw, hh), r(w / 4, hh, hw, h - hh)],
-        _ => vec![r(0, 0, hw, hh), r(hw, 0, w - hw, hh), r(0, hh, hw, h - hh), r(hw, hh, w - hw, h - hh)],
+        3 => vec![
+            r(0, 0, hw, hh),
+            r(hw, 0, w - hw, hh),
+            r(w / 4, hh, hw, h - hh),
+        ],
+        _ => vec![
+            r(0, 0, hw, hh),
+            r(hw, 0, w - hw, hh),
+            r(0, hh, hw, h - hh),
+            r(hw, hh, w - hw, h - hh),
+        ],
     }
 }
 
@@ -165,11 +201,31 @@ mod tests {
 
     #[test]
     fn rect_and_couch_parse() {
-        assert_eq!(Rect::parse("0, 540,1920,540").unwrap(), Rect { x: 0, y: 540, w: 1920, h: 540 });
+        assert_eq!(
+            Rect::parse("0, 540,1920,540").unwrap(),
+            Rect {
+                x: 0,
+                y: 540,
+                w: 1920,
+                h: 540
+            }
+        );
         assert!(Rect::parse("1,2,3").is_err());
         assert!(Rect::parse("0,0,10,10").unwrap_err().contains("too small"));
-        assert_eq!(Couch::parse("3/4").unwrap(), Couch { slot: 3, players: 4 });
-        assert_eq!(Couch::parse("0/1").unwrap(), Couch { slot: 0, players: 1 });
+        assert_eq!(
+            Couch::parse("3/4").unwrap(),
+            Couch {
+                slot: 3,
+                players: 4
+            }
+        );
+        assert_eq!(
+            Couch::parse("0/1").unwrap(),
+            Couch {
+                slot: 0,
+                players: 1
+            }
+        );
         for bad in ["2/2", "4/4", "0/5", "x", "0/0", "1-2"] {
             assert!(Couch::parse(bad).is_err(), "{bad}");
         }
@@ -182,21 +238,72 @@ mod tests {
 
     #[test]
     fn override_and_voice_flags() {
-        let e = Extras { allow_mismatch: true, voice: Some(VoiceMode::Activity), ptt_key: Some("Backslash".into()), ping_key: Some("MouseMiddle".into()), ..Extras::default() };
+        let e = Extras {
+            allow_mismatch: true,
+            voice: Some(VoiceMode::Activity),
+            ptt_key: Some("Backslash".into()),
+            ping_key: Some("MouseMiddle".into()),
+            ..Extras::default()
+        };
         assert_eq!(
             e.args(),
-            ["--coop-allow-mismatch", "--coop-voice", "vad", "--coop-ptt-key", "Backslash", "--coop-ping-key", "MouseMiddle"]
+            [
+                "--coop-allow-mismatch",
+                "--coop-voice",
+                "vad",
+                "--coop-ptt-key",
+                "Backslash",
+                "--coop-ping-key",
+                "MouseMiddle"
+            ]
         );
     }
 
     #[test]
     fn only_the_first_couch_player_owns_the_microphone() {
-        let first = Extras { couch: Some(Couch { slot: 0, players: 2 }), ..Extras::default() };
+        let first = Extras {
+            couch: Some(Couch {
+                slot: 0,
+                players: 2,
+            }),
+            ..Extras::default()
+        };
         assert!(!first.args().contains(&"--coop-voice".to_string()));
-        let second = Extras { couch: Some(Couch { slot: 1, players: 2 }), gamepad: Some(1), window: Some(Rect { x: 0, y: 540, w: 1920, h: 540 }), ..Extras::default() };
-        assert_eq!(second.args(), ["--coop-couch", "1/2", "--coop-window", "0,540,1920,540", "--coop-gamepad", "1", "--coop-voice", "off"]);
-        let forced = Extras { voice: Some(VoiceMode::PushToTalk), ..second };
-        assert!(forced.args().windows(2).any(|w| w == ["--coop-voice", "ptt"]));
+        let second = Extras {
+            couch: Some(Couch {
+                slot: 1,
+                players: 2,
+            }),
+            gamepad: Some(1),
+            window: Some(Rect {
+                x: 0,
+                y: 540,
+                w: 1920,
+                h: 540,
+            }),
+            ..Extras::default()
+        };
+        assert_eq!(
+            second.args(),
+            [
+                "--coop-couch",
+                "1/2",
+                "--coop-window",
+                "0,540,1920,540",
+                "--coop-gamepad",
+                "1",
+                "--coop-voice",
+                "off"
+            ]
+        );
+        let forced = Extras {
+            voice: Some(VoiceMode::PushToTalk),
+            ..second
+        };
+        assert!(forced
+            .args()
+            .windows(2)
+            .any(|w| w == ["--coop-voice", "ptt"]));
     }
 
     #[test]
@@ -205,15 +312,37 @@ mod tests {
             let l = layout(n, 1920, 1080);
             assert_eq!(l.len(), n as usize);
             for (i, a) in l.iter().enumerate() {
-                assert!(a.x >= 0 && a.y >= 0 && a.x as u32 + a.w <= 1920 && a.y as u32 + a.h <= 1080, "{a:?}");
+                assert!(
+                    a.x >= 0 && a.y >= 0 && a.x as u32 + a.w <= 1920 && a.y as u32 + a.h <= 1080,
+                    "{a:?}"
+                );
                 for b in l.iter().skip(i + 1) {
-                    let apart = a.x as u32 + a.w <= b.x as u32 || b.x as u32 + b.w <= a.x as u32 || a.y as u32 + a.h <= b.y as u32 || b.y as u32 + b.h <= a.y as u32;
+                    let apart = a.x as u32 + a.w <= b.x as u32
+                        || b.x as u32 + b.w <= a.x as u32
+                        || a.y as u32 + a.h <= b.y as u32
+                        || b.y as u32 + b.h <= a.y as u32;
                     assert!(apart, "{a:?} overlaps {b:?}");
                 }
             }
         }
-        assert_eq!(layout(2, 1920, 1080)[1], Rect { x: 0, y: 540, w: 1920, h: 540 });
-        assert_eq!(layout(4, 1920, 1080)[3], Rect { x: 960, y: 540, w: 960, h: 540 });
+        assert_eq!(
+            layout(2, 1920, 1080)[1],
+            Rect {
+                x: 0,
+                y: 540,
+                w: 1920,
+                h: 540
+            }
+        );
+        assert_eq!(
+            layout(4, 1920, 1080)[3],
+            Rect {
+                x: 960,
+                y: 540,
+                w: 960,
+                h: 540
+            }
+        );
     }
 }
 
@@ -224,11 +353,15 @@ pub fn refusal_from_log(log: &str) -> Option<String> {
     const KEY: &str = "host refused the connection: ";
     let mut found = None;
     for line in log.lines() {
-        let Ok(v) = crate::json::parse(line) else { continue };
+        let Ok(v) = crate::json::parse(line) else {
+            continue;
+        };
         if v.get("ev").and_then(|e| e.as_str()) != Some("error") {
             continue;
         }
-        let Some(msg) = v.get("msg").and_then(|m| m.as_str()) else { continue };
+        let Some(msg) = v.get("msg").and_then(|m| m.as_str()) else {
+            continue;
+        };
         if let Some(rest) = msg.strip_prefix(KEY) {
             // "<ReasonCode>: <text>"
             let text = rest.split_once(": ").map_or(rest, |(_, t)| t);
@@ -252,7 +385,10 @@ mod refusal_tests {
             "{\"t\":4.0,\"ev\":\"error\",\"msg\":\"something else\"}\n",
         );
         let t = refusal_from_log(log).unwrap();
-        assert!(t.starts_with("You cannot join this game.") && t.contains("DeadMoney.esm"), "{t}");
+        assert!(
+            t.starts_with("You cannot join this game.") && t.contains("DeadMoney.esm"),
+            "{t}"
+        );
         assert_eq!(refusal_from_log("{\"ev\":\"start\"}\n"), None);
     }
 }

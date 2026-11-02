@@ -28,7 +28,10 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::path::PathBuf;
 
 use coop_core::transport::Transport;
-use coop_net::{random_token, Endpoint, EndpointConfig, JoinCode, JoinTarget as NetTarget, Token, UdpBackend, UdpConfig};
+use coop_net::{
+    random_token, Endpoint, EndpointConfig, JoinCode, JoinTarget as NetTarget, Token, UdpBackend,
+    UdpConfig,
+};
 
 use crate::net::{Link, LinkErrors, DIRECT_TOKEN};
 use crate::{Error, Role};
@@ -82,12 +85,18 @@ pub struct Notice {
 
 impl Notice {
     pub(crate) fn new(ev: &'static str, fields: &[(&'static str, &str)]) -> Notice {
-        Notice { ev, fields: fields.iter().map(|(k, v)| (*k, v.to_string())).collect() }
+        Notice {
+            ev,
+            fields: fields.iter().map(|(k, v)| (*k, v.to_string())).collect(),
+        }
     }
 
     /// The field `key`, if set.
     pub fn get(&self, key: &str) -> Option<&str> {
-        self.fields.iter().find(|(k, _)| *k == key).map(|(_, v)| v.as_str())
+        self.fields
+            .iter()
+            .find(|(k, _)| *k == key)
+            .map(|(_, v)| v.as_str())
     }
 }
 
@@ -111,7 +120,11 @@ pub struct Opened {
 }
 
 impl Opened {
-    pub(crate) fn new(transport: Box<dyn Transport>, errors: LinkErrors, kind: &'static str) -> Opened {
+    pub(crate) fn new(
+        transport: Box<dyn Transport>,
+        errors: LinkErrors,
+        kind: &'static str,
+    ) -> Opened {
         Opened {
             transport,
             errors,
@@ -175,7 +188,10 @@ fn resolve(addr: &str) -> Result<SocketAddr, Error> {
 }
 
 fn endpoint_cfg(req: &LinkRequest) -> EndpointConfig {
-    EndpointConfig { name: req.name.clone(), ..EndpointConfig::default() }
+    EndpointConfig {
+        name: req.name.clone(),
+        ..EndpointConfig::default()
+    }
 }
 
 /// Opens the transport the request asks for.
@@ -193,13 +209,22 @@ fn open_host(req: &LinkRequest) -> Result<Opened, Error> {
         match try_steam_host(req, token) {
             Ok(o) => return Ok(o),
             Err(why) => {
-                fallback = Some(Notice::new("transport_fallback", &[("from", "steam"), ("to", "udp"), ("reason", &why)]));
+                fallback = Some(Notice::new(
+                    "transport_fallback",
+                    &[("from", "steam"), ("to", "udp"), ("reason", &why)],
+                ));
             }
         }
     }
     let mut o = open_udp_host(req, token)?;
     if let Some(n) = fallback {
-        o.lines.insert(0, format!("Co-op: Steam is not available ({}); hosting on UDP instead.", n.get("reason").unwrap_or("")));
+        o.lines.insert(
+            0,
+            format!(
+                "Co-op: Steam is not available ({}); hosting on UDP instead.",
+                n.get("reason").unwrap_or("")
+            ),
+        );
         o.notices.insert(0, n);
     }
     Ok(o)
@@ -218,16 +243,24 @@ fn try_steam_host(_req: &LinkRequest, _token: Token) -> Result<Opened, String> {
 fn open_udp_host(req: &LinkRequest, token: Token) -> Result<Opened, Error> {
     let port = crate::target::parse_host_port(&req.addr).map_err(Error::Target)?;
     let bind = SocketAddr::from(([0, 0, 0, 0], port));
-    let b = UdpBackend::host(bind, token, UdpConfig::default()).map_err(|e| Error::Io(format!("{}: {e}", req.addr)))?;
+    let b = UdpBackend::host(bind, token, UdpConfig::default())
+        .map_err(|e| Error::Io(format!("{}: {e}", req.addr)))?;
     let errors = LinkErrors::default();
     let ep = Endpoint::host(b, token, endpoint_cfg(req));
-    let link = Link { ep, guest: false, errors: errors.clone(), retry_at: None };
+    let link = Link {
+        ep,
+        guest: false,
+        errors: errors.clone(),
+        retry_at: None,
+    };
     let mut o = Opened::new(Box::new(link), errors, "udp");
     let ip = guess_local_ip();
     let code = JoinCode::new(NetTarget::Direct(SocketAddr::new(ip, port)), token).to_string();
     o.lines.push(format!("Co-op: hosting on UDP port {port}."));
     if req.test_token {
-        o.lines.push("Co-op: test token in use; guests join by HOST:PORT with --coop-test-token.".into());
+        o.lines.push(
+            "Co-op: test token in use; guests join by HOST:PORT with --coop-test-token.".into(),
+        );
     } else {
         o.lines.push(format!(
             "Co-op: join code for this machine's address {ip}: {code} (for play over the internet, forward UDP port {port} and use your public address in the code)"
@@ -275,10 +308,16 @@ fn open_guest(req: &LinkRequest) -> Result<Opened, Error> {
 }
 
 fn udp_guest(req: &LinkRequest, target: SocketAddr, token: Token) -> Result<Opened, Error> {
-    let b = UdpBackend::guest(target, token, UdpConfig::default()).map_err(|e| Error::Io(format!("{target}: {e}")))?;
+    let b = UdpBackend::guest(target, token, UdpConfig::default())
+        .map_err(|e| Error::Io(format!("{target}: {e}")))?;
     let errors = LinkErrors::default();
     let ep = Endpoint::guest(b, token, endpoint_cfg(req));
-    let link = Link { ep, guest: true, errors: errors.clone(), retry_at: None };
+    let link = Link {
+        ep,
+        guest: true,
+        errors: errors.clone(),
+        retry_at: None,
+    };
     Ok(Opened::new(Box::new(link), errors, "udp"))
 }
 
@@ -331,7 +370,11 @@ mod tests {
     }
 
     fn free_port() -> u16 {
-        UdpSocket::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+        UdpSocket::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
     }
 
     #[test]
@@ -339,7 +382,11 @@ mod tests {
         let port = free_port();
         let o = open(&LinkRequest::new(Role::Host, "h", &port.to_string())).unwrap();
         let code = o.join_code.clone().expect("code");
-        let n = o.notices.iter().find(|n| n.ev == "coop_join_code").expect("coop_join_code notice");
+        let n = o
+            .notices
+            .iter()
+            .find(|n| n.ev == "coop_join_code")
+            .expect("coop_join_code notice");
         assert_eq!(n.get("code"), Some(code.as_str()));
         let parsed: JoinCode = code.parse().unwrap();
         assert_eq!(token_hex(&parsed.token), n.get("token").unwrap());
@@ -369,7 +416,8 @@ mod tests {
 
     #[test]
     fn steam_code_without_steam_is_a_clear_error() {
-        let code = JoinCode::new(NetTarget::SteamLobby(109_775_241_000_000_001), [3; 16]).to_string();
+        let code =
+            JoinCode::new(NetTarget::SteamLobby(109_775_241_000_000_001), [3; 16]).to_string();
         let mut r = LinkRequest::new(Role::Guest, "g", &code);
         r.steam_dll = Some(PathBuf::from("definitely-not-here/steam_api64.dll"));
         let e = open(&r).err().expect("no way to join");

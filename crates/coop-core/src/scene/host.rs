@@ -46,7 +46,11 @@ pub struct ScenePolicy {
 
 impl Default for ScenePolicy {
     fn default() -> Self {
-        ScenePolicy { late_join_waits: true, gather_timeout_ms: GATHER_TIMEOUT_MS, lead_ms: GO_LEAD_MS }
+        ScenePolicy {
+            late_join_waits: true,
+            gather_timeout_ms: GATHER_TIMEOUT_MS,
+            lead_ms: GO_LEAD_MS,
+        }
     }
 }
 
@@ -123,7 +127,10 @@ impl SceneHost {
 
     /// The open scene of this kind and tag, if any.
     pub fn find(&self, kind: SceneKind, tag: u32) -> Option<u32> {
-        self.scenes.values().find(|s| s.info.spec.kind == kind && s.info.spec.tag == tag).map(|s| s.info.id)
+        self.scenes
+            .values()
+            .find(|s| s.info.spec.kind == kind && s.info.spec.tag == tag)
+            .map(|s| s.info.id)
     }
 
     /// True while any scene is open.
@@ -185,20 +192,29 @@ impl SceneHost {
             return None;
         }
         let everyone = self.members;
-        let participants = if spec.participants.is_empty() { everyone } else { Mask(spec.participants.0 & everyone.0) };
+        let participants = if spec.participants.is_empty() {
+            everyone
+        } else {
+            Mask(spec.participants.0 & everyone.0)
+        };
         if participants.is_empty() {
             return None;
         }
         spec.participants = participants;
         let id = self.next_id;
         self.next_id += 1;
-        let together = spec.barrier == BarrierRule::Together && participants.minus_host().count() > 0;
+        let together =
+            spec.barrier == BarrierRule::Together && participants.minus_host().count() > 0;
         let info = SceneInfo {
             id,
             participants,
             waiting: Mask::NONE,
             locks: spec.locks,
-            phase: if together { Phase::Gather } else { Phase::Playing },
+            phase: if together {
+                Phase::Gather
+            } else {
+                Phase::Playing
+            },
             elapsed_ms: 0,
             slide: 0,
             spec: spec.clone(),
@@ -206,8 +222,20 @@ impl SceneHost {
         if spec.kind == SceneKind::Ending && !self.committed.contains(&spec.tag) {
             self.committed.push(spec.tag);
         }
-        let mut sc = HScene { info, ready: Mask::of(PlayerId::HOST), done: Mask::NONE, yes: Mask::NONE, opened_ms: now_ms, zero_ms: None };
-        let mut outs = vec![out(Audience::All, SceneMsg::Open { scene: sc.info.clone() })];
+        let mut sc = HScene {
+            info,
+            ready: Mask::of(PlayerId::HOST),
+            done: Mask::NONE,
+            yes: Mask::NONE,
+            opened_ms: now_ms,
+            zero_ms: None,
+        };
+        let mut outs = vec![out(
+            Audience::All,
+            SceneMsg::Open {
+                scene: sc.info.clone(),
+            },
+        )];
         self.events.push(SceneEvent::Opened(id));
         if !together {
             outs.extend(self.release(&mut sc, now_ms));
@@ -220,12 +248,20 @@ impl SceneHost {
         sc.info.phase = Phase::Playing;
         sc.zero_ms = Some(now_ms + u64::from(self.policy.lead_ms));
         self.events.push(SceneEvent::Started(sc.info.id));
-        vec![out(Audience::All, SceneMsg::Go { id: sc.info.id, start_in_ms: self.policy.lead_ms })]
+        vec![out(
+            Audience::All,
+            SceneMsg::Go {
+                id: sc.info.id,
+                start_in_ms: self.policy.lead_ms,
+            },
+        )]
     }
 
     /// A participant is ready for the barrier.
     pub fn ready(&mut self, from: PlayerId, id: u32, now_ms: u64) -> Vec<SOut> {
-        let Some(mut sc) = self.scenes.remove(&id) else { return vec![] };
+        let Some(mut sc) = self.scenes.remove(&id) else {
+            return vec![];
+        };
         let mut outs = Vec::new();
         if sc.info.participants.contains(from) {
             sc.ready = sc.ready.with(from);
@@ -240,7 +276,9 @@ impl SceneHost {
     /// A player finished playing the scene on their machine. The host's own
     /// end closes the scene for everyone; so does everyone being done.
     pub fn done(&mut self, from: PlayerId, id: u32, now_ms: u64) -> Vec<SOut> {
-        let Some(sc) = self.scenes.get_mut(&id) else { return vec![] };
+        let Some(sc) = self.scenes.get_mut(&id) else {
+            return vec![];
+        };
         if !sc.info.participants.contains(from) || sc.info.phase != Phase::Playing {
             return vec![];
         }
@@ -253,7 +291,9 @@ impl SceneHost {
 
     /// A skip vote (or the host's skip).
     pub fn skip_vote(&mut self, from: PlayerId, id: u32, yes: bool, now_ms: u64) -> Vec<SOut> {
-        let Some(sc) = self.scenes.get_mut(&id) else { return vec![] };
+        let Some(sc) = self.scenes.get_mut(&id) else {
+            return vec![];
+        };
         if !sc.info.participants.contains(from) {
             return vec![];
         }
@@ -267,7 +307,11 @@ impl SceneHost {
                 }
             }
             SkipRule::Unanimous => {
-                sc.yes = if yes { sc.yes.with(from) } else { sc.yes.without(from) };
+                sc.yes = if yes {
+                    sc.yes.with(from)
+                } else {
+                    sc.yes.without(from)
+                };
                 if sc.info.participants.is_subset_of(sc.yes) {
                     self.end(id, EndReason::Skipped, now_ms)
                 } else {
@@ -280,8 +324,13 @@ impl SceneHost {
     /// Adds a player to a running scene (they arrived in its cell, or asked
     /// to join). They are sent the scene with its elapsed time.
     pub fn merge(&mut self, id: u32, p: PlayerId, now_ms: u64) -> Vec<SOut> {
-        let Some(sc) = self.scenes.get(&id) else { return vec![] };
-        if !self.members.contains(p) || sc.info.participants.contains(p) || sc.info.phase != Phase::Playing {
+        let Some(sc) = self.scenes.get(&id) else {
+            return vec![];
+        };
+        if !self.members.contains(p)
+            || sc.info.participants.contains(p)
+            || sc.info.phase != Phase::Playing
+        {
             return vec![];
         }
         let sc = self.scenes.get_mut(&id).expect("checked");
@@ -292,7 +341,13 @@ impl SceneHost {
         self.events.push(SceneEvent::Merged(id, p));
         let info = self.snapshot(sc, now_ms);
         vec![
-            out(Audience::To(p), SceneMsg::Sync { scenes: vec![info], committed: self.committed.clone() }),
+            out(
+                Audience::To(p),
+                SceneMsg::Sync {
+                    scenes: vec![info],
+                    committed: self.committed.clone(),
+                },
+            ),
             out(Audience::All, SceneMsg::Merged { id, player: p }),
         ]
     }
@@ -307,7 +362,9 @@ impl SceneHost {
 
     /// Changes a scene's lock set (the story turned some controls back on).
     pub fn set_locks(&mut self, id: u32, locks: Locks) -> Vec<SOut> {
-        let Some(sc) = self.scenes.get_mut(&id) else { return vec![] };
+        let Some(sc) = self.scenes.get_mut(&id) else {
+            return vec![];
+        };
         if sc.info.locks == locks {
             return vec![];
         }
@@ -318,9 +375,14 @@ impl SceneHost {
     /// Shows the next ending slide to everyone, in order. Stale or repeated
     /// indices are dropped.
     pub fn slide(&mut self, id: u32, index: u16) -> Vec<SOut> {
-        let Some(sc) = self.scenes.get_mut(&id) else { return vec![] };
+        let Some(sc) = self.scenes.get_mut(&id) else {
+            return vec![];
+        };
         // slide 0 is the one an ending opens on
-        if sc.info.spec.kind != SceneKind::Ending || index <= sc.info.slide || index >= sc.info.spec.slides {
+        if sc.info.spec.kind != SceneKind::Ending
+            || index <= sc.info.slide
+            || index >= sc.info.spec.slides
+        {
             return vec![];
         }
         sc.info.slide = index;
@@ -359,8 +421,18 @@ impl SceneHost {
                 }
             }
         }
-        let scenes: Vec<SceneInfo> = self.scenes.values().map(|s| self.snapshot(s, now_ms)).collect();
-        let mut outs = vec![out(Audience::To(p), SceneMsg::Sync { scenes, committed: self.committed.clone() })];
+        let scenes: Vec<SceneInfo> = self
+            .scenes
+            .values()
+            .map(|s| self.snapshot(s, now_ms))
+            .collect();
+        let mut outs = vec![out(
+            Audience::To(p),
+            SceneMsg::Sync {
+                scenes,
+                committed: self.committed.clone(),
+            },
+        )];
         if let Some(c) = clock {
             outs.push(out(Audience::To(p), SceneMsg::Clock { clock: c }));
         }
@@ -373,8 +445,18 @@ impl SceneHost {
         if !self.members.contains(p) {
             return vec![];
         }
-        let scenes: Vec<SceneInfo> = self.scenes.values().map(|s| self.snapshot(s, now_ms)).collect();
-        let mut outs = vec![out(Audience::To(p), SceneMsg::Sync { scenes, committed: self.committed.clone() })];
+        let scenes: Vec<SceneInfo> = self
+            .scenes
+            .values()
+            .map(|s| self.snapshot(s, now_ms))
+            .collect();
+        let mut outs = vec![out(
+            Audience::To(p),
+            SceneMsg::Sync {
+                scenes,
+                committed: self.committed.clone(),
+            },
+        )];
         if let Some(c) = clock {
             outs.push(out(Audience::To(p), SceneMsg::Clock { clock: c }));
         }
@@ -394,11 +476,13 @@ impl SceneHost {
             sc.yes = sc.yes.without(p);
             if sc.info.participants.is_empty() {
                 outs.extend(self.end(id, EndReason::Empty, now_ms));
-            } else if sc.info.phase == Phase::Gather && sc.info.participants.is_subset_of(sc.ready) {
+            } else if sc.info.phase == Phase::Gather && sc.info.participants.is_subset_of(sc.ready)
+            {
                 let mut sc = self.scenes.remove(&id).expect("listed");
                 outs.extend(self.release(&mut sc, now_ms));
                 self.scenes.insert(id, sc);
-            } else if sc.info.phase == Phase::Playing && sc.info.participants.is_subset_of(sc.done) {
+            } else if sc.info.phase == Phase::Playing && sc.info.participants.is_subset_of(sc.done)
+            {
                 outs.extend(self.end(id, EndReason::Finished, now_ms));
             }
         }
@@ -409,16 +493,24 @@ impl SceneHost {
     pub fn tick(&mut self, now_ms: u64) -> Vec<SOut> {
         let mut outs = Vec::new();
         for id in self.ids() {
-            let Some(sc) = self.scenes.get(&id) else { continue };
+            let Some(sc) = self.scenes.get(&id) else {
+                continue;
+            };
             match sc.info.phase {
-                Phase::Gather if now_ms.saturating_sub(sc.opened_ms) >= self.policy.gather_timeout_ms => {
+                Phase::Gather
+                    if now_ms.saturating_sub(sc.opened_ms) >= self.policy.gather_timeout_ms =>
+                {
                     let mut sc = self.scenes.remove(&id).expect("listed");
                     outs.extend(self.release(&mut sc, now_ms));
                     self.scenes.insert(id, sc);
                 }
                 Phase::Playing => {
                     let limit = u64::from(sc.info.spec.timeout_ms);
-                    if limit > 0 && sc.zero_ms.is_some_and(|z| now_ms.saturating_sub(z) >= limit) {
+                    if limit > 0
+                        && sc
+                            .zero_ms
+                            .is_some_and(|z| now_ms.saturating_sub(z) >= limit)
+                    {
                         outs.extend(self.end(id, EndReason::TimedOut, now_ms));
                     }
                 }
@@ -430,12 +522,26 @@ impl SceneHost {
 
     /// A time skip happened on the host (a vote passed and the hours went by):
     /// announced once, with the clock after it.
-    pub fn time_skip(&mut self, hours: u16, sleeping: bool, clock: ClockSnap, now_ms: u64) -> Vec<SOut> {
+    pub fn time_skip(
+        &mut self,
+        hours: u16,
+        sleeping: bool,
+        clock: ClockSnap,
+        now_ms: u64,
+    ) -> Vec<SOut> {
         let event = self.next_time_event;
         self.next_time_event += 1;
         self.skips += 1;
         self.last_clock = Some((clock, now_ms));
-        vec![out(Audience::All, SceneMsg::TimeSkip { event, hours, sleeping, clock })]
+        vec![out(
+            Audience::All,
+            SceneMsg::TimeSkip {
+                event,
+                hours,
+                sleeping,
+                clock,
+            },
+        )]
     }
 
     /// The clock, repeated about once a second when it changed.
@@ -446,7 +552,10 @@ impl SceneHost {
             }
         }
         self.last_clock = Some((clock, now_ms));
-        vec![out(Audience::AllExcept(PlayerId::HOST), SceneMsg::Clock { clock })]
+        vec![out(
+            Audience::AllExcept(PlayerId::HOST),
+            SceneMsg::Clock { clock },
+        )]
     }
 
     /// The newest clock the host announced.
@@ -492,7 +601,13 @@ mod tests {
 
     fn movie_spec() -> SceneSpec {
         let mut s = SceneSpec::new(SceneKind::Movie, 77);
-        s.movie = Some(Movie { file: "intro.bik".into(), interruptable: true, mute_audio: true, pause_music: true, letterbox: true });
+        s.movie = Some(Movie {
+            file: "intro.bik".into(),
+            interruptable: true,
+            mute_audio: true,
+            pause_music: true,
+            letterbox: true,
+        });
         s.camera = CameraMode::Movie;
         s.locks = Locks::ALL;
         s.skip = SkipRule::Unanimous;
@@ -503,13 +618,27 @@ mod tests {
     fn together_waits_for_every_participant_then_goes_once() {
         let mut h = host3();
         let (id, o) = h.open(movie_spec(), 100).unwrap();
-        assert!(matches!(&o[0].msg, SceneMsg::Open { scene } if scene.phase == Phase::Gather && scene.participants == Mask(7)));
+        assert!(
+            matches!(&o[0].msg, SceneMsg::Open { scene } if scene.phase == Phase::Gather && scene.participants == Mask(7))
+        );
         assert_eq!(o.len(), 1, "no go yet");
         assert!(h.ready(p(1), id, 150).is_empty());
         let go = h.ready(p(2), id, 200);
-        assert!(matches!(go[0].msg, SceneMsg::Go { start_in_ms: GO_LEAD_MS, .. }));
-        assert!(h.ready(p(2), id, 210).is_empty(), "a second ready does not release twice");
-        assert_eq!(h.take_events(), vec![SceneEvent::Opened(id), SceneEvent::Started(id)]);
+        assert!(matches!(
+            go[0].msg,
+            SceneMsg::Go {
+                start_in_ms: GO_LEAD_MS,
+                ..
+            }
+        ));
+        assert!(
+            h.ready(p(2), id, 210).is_empty(),
+            "a second ready does not release twice"
+        );
+        assert_eq!(
+            h.take_events(),
+            vec![SceneEvent::Opened(id), SceneEvent::Started(id)]
+        );
     }
 
     #[test]
@@ -534,12 +663,20 @@ mod tests {
         assert_eq!(h.locks_for(p(2)), Locks::NONE, "the roamer is free");
         assert_eq!(h.locks_for(p(1)), Locks(Locks::MOVEMENT | Locks::LOOKING));
         let o = h.merge(id, p(2), 6_300);
-        let SceneMsg::Sync { scenes, .. } = &o[0].msg else { panic!() };
-        assert_eq!(scenes[0].elapsed_ms, 5_000, "the roamer starts where the scene is");
+        let SceneMsg::Sync { scenes, .. } = &o[0].msg else {
+            panic!()
+        };
+        assert_eq!(
+            scenes[0].elapsed_ms, 5_000,
+            "the roamer starts where the scene is"
+        );
         assert_eq!(o[0].aud, Audience::To(p(2)));
         assert!(matches!(o[1].msg, SceneMsg::Merged { .. }));
         assert_eq!(h.locks_for(p(2)), Locks(Locks::MOVEMENT | Locks::LOOKING));
-        assert!(h.merge(id, p(2), 6_400).is_empty(), "merging twice does nothing");
+        assert!(
+            h.merge(id, p(2), 6_400).is_empty(),
+            "merging twice does nothing"
+        );
     }
 
     #[test]
@@ -562,7 +699,13 @@ mod tests {
         assert!(h.skip_vote(p(1), id, false, 7).is_empty());
         assert!(h.skip_vote(p(2), id, true, 8).is_empty());
         let o = h.skip_vote(p(1), id, true, 9);
-        assert!(matches!(o[0].msg, SceneMsg::Close { reason: EndReason::Skipped, .. }));
+        assert!(matches!(
+            o[0].msg,
+            SceneMsg::Close {
+                reason: EndReason::Skipped,
+                ..
+            }
+        ));
         assert!(!h.active());
     }
 
@@ -574,7 +717,13 @@ mod tests {
         s.barrier = BarrierRule::Roam;
         let (id, _) = h.open(s, 0).unwrap();
         assert!(h.skip_vote(p(1), id, true, 1).is_empty());
-        assert!(matches!(h.skip_vote(p(0), id, true, 2)[0].msg, SceneMsg::Close { reason: EndReason::Skipped, .. }));
+        assert!(matches!(
+            h.skip_vote(p(0), id, true, 2)[0].msg,
+            SceneMsg::Close {
+                reason: EndReason::Skipped,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -597,7 +746,13 @@ mod tests {
         s.barrier = BarrierRule::Roam;
         let (id, _) = h.open(s, 0).unwrap();
         assert!(h.done(p(1), id, 10).is_empty());
-        assert!(matches!(h.done(p(0), id, 11)[0].msg, SceneMsg::Close { reason: EndReason::Finished, .. }));
+        assert!(matches!(
+            h.done(p(0), id, 11)[0].msg,
+            SceneMsg::Close {
+                reason: EndReason::Finished,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -606,7 +761,10 @@ mod tests {
         let (id, _) = h.open(movie_spec(), 0).unwrap();
         h.ready(p(1), id, 1);
         let o = h.on_leave(p(2), 2);
-        assert!(matches!(o[0].msg, SceneMsg::Go { .. }), "nobody waits for a player who left");
+        assert!(
+            matches!(o[0].msg, SceneMsg::Go { .. }),
+            "nobody waits for a player who left"
+        );
         let o = h.on_leave(p(1), 3);
         assert!(o.is_empty(), "the host is still in it");
         assert_eq!(h.ids(), vec![id]);
@@ -632,7 +790,9 @@ mod tests {
         s.barrier = BarrierRule::Roam;
         let (id, _) = h.open(s, 0).unwrap();
         let o = h.on_join(p(1), 4_300, None);
-        let SceneMsg::Sync { scenes, .. } = &o[0].msg else { panic!() };
+        let SceneMsg::Sync { scenes, .. } = &o[0].msg else {
+            panic!()
+        };
         assert_eq!(scenes[0].elapsed_ms, 4_000);
         assert_eq!(h.locks_for(p(1)), Locks::ALL, "held");
         h.end(id, EndReason::Finished, 9);
@@ -642,7 +802,10 @@ mod tests {
     #[test]
     fn refusing_policy_blocks_joins_during_a_scene() {
         let mut h = SceneHost::new();
-        h.set_policy(ScenePolicy { late_join_waits: false, ..Default::default() });
+        h.set_policy(ScenePolicy {
+            late_join_waits: false,
+            ..Default::default()
+        });
         assert!(h.joins_allowed());
         let mut s = movie_spec();
         s.barrier = BarrierRule::Roam;
@@ -658,13 +821,25 @@ mod tests {
         s.timeout_ms = 1_000;
         let (id, _) = h.open(s, 0).unwrap();
         assert!(h.tick(GO_LEAD_MS as u64 + 999).is_empty());
-        assert!(matches!(h.tick(GO_LEAD_MS as u64 + 1_000)[0].msg, SceneMsg::Close { reason: EndReason::TimedOut, .. }));
+        assert!(matches!(
+            h.tick(GO_LEAD_MS as u64 + 1_000)[0].msg,
+            SceneMsg::Close {
+                reason: EndReason::TimedOut,
+                ..
+            }
+        ));
         let _ = id;
         let mut s = SceneSpec::new(SceneKind::Cinematic, 2);
         s.barrier = BarrierRule::Roam;
         h.open(s, 0).unwrap();
         let o = h.abort_all(5);
-        assert!(matches!(o[0].msg, SceneMsg::Close { reason: EndReason::Aborted, .. }));
+        assert!(matches!(
+            o[0].msg,
+            SceneMsg::Close {
+                reason: EndReason::Aborted,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -682,13 +857,18 @@ mod tests {
         assert_eq!(h.slide(id, 2).len(), 1);
         h.end(id, EndReason::Finished, 1);
         let o = h.on_join(p(3), 2, None);
-        assert!(matches!(&o[0].msg, SceneMsg::Sync { committed, scenes } if committed == &[0xE1] && scenes.is_empty()));
+        assert!(
+            matches!(&o[0].msg, SceneMsg::Sync { committed, scenes } if committed == &[0xE1] && scenes.is_empty())
+        );
     }
 
     #[test]
     fn time_skips_have_increasing_event_ids_and_the_clock_is_rate_limited() {
         let mut h = host3();
-        let c = ClockSnap { hour: 8.0f32.to_bits(), ..Default::default() };
+        let c = ClockSnap {
+            hour: 8.0f32.to_bits(),
+            ..Default::default()
+        };
         let a = h.time_skip(8, true, c, 0);
         let b = h.time_skip(1, false, c, 10);
         assert!(matches!(a[0].msg, SceneMsg::TimeSkip { event: 1, .. }));

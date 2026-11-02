@@ -8,8 +8,8 @@
 
 pub mod engine;
 mod json;
-pub mod load;
 pub mod lifecycle;
+pub mod load;
 pub mod model;
 pub mod reducer;
 

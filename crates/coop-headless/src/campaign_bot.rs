@@ -31,7 +31,19 @@ use crate::data::Data;
 pub fn is_campaign_verb(v: &str) -> bool {
     matches!(
         v,
-        "recruit" | "dismiss" | "command" | "down" | "revive" | "stash" | "give" | "level" | "objvar" | "vote" | "fork" | "pcond" | "ffhit"
+        "recruit"
+            | "dismiss"
+            | "command"
+            | "down"
+            | "revive"
+            | "stash"
+            | "give"
+            | "level"
+            | "objvar"
+            | "vote"
+            | "fork"
+            | "pcond"
+            | "ffhit"
     )
 }
 
@@ -107,8 +119,15 @@ pub fn run(verb: &str, words: &[&str], d: &Data, gs: &mut GameState, cx: Ctx) ->
             }
         }
         "objvar" => {
-            if let (Some(s), Some(owner), Some(script), Some(var), Some(v)) = (slot(2), form(3), arg(4), arg(5), num(6)) {
-                gs.coop.campaign.objvar_wanted.entry(script.to_ascii_lowercase()).or_default().push(var.to_ascii_lowercase());
+            if let (Some(s), Some(owner), Some(script), Some(var), Some(v)) =
+                (slot(2), form(3), arg(4), arg(5), num(6))
+            {
+                gs.coop
+                    .campaign
+                    .objvar_wanted
+                    .entry(script.to_ascii_lowercase())
+                    .or_default()
+                    .push(var.to_ascii_lowercase());
                 gs.coop.campaign.note_script_owner(owner, script);
                 // a reference that has not run the script yet gets its variables
                 if !gs.variables.contains_key(&owner) {
@@ -153,7 +172,11 @@ pub fn run(verb: &str, words: &[&str], d: &Data, gs: &mut GameState, cx: Ctx) ->
                     .and_then(|ff| ff.actors.get(idx as usize))
                     .and_then(|a| owners::resolve(order, a));
                 if let Some(v) = victim {
-                    let by = if s == 0 { PLAYER_REF } else { puppet_of(coop_session::PlayerId(s)) };
+                    let by = if s == 0 {
+                        PLAYER_REF
+                    } else {
+                        puppet_of(coop_session::PlayerId(s))
+                    };
                     world::combat::hurt(order, gs, v, amt, by);
                 }
             }

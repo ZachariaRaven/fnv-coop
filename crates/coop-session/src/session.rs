@@ -176,7 +176,10 @@ impl Event {
             Event::Connected => "Connected to the host".into(),
             Event::Lost => "Lost the host, reconnecting".into(),
             Event::Reconnected => "Reconnected to the host".into(),
-            Event::Rejected(r) => format!("The host refused the connection: {}", coop_core::compat::reason_text(*r)),
+            Event::Rejected(r) => format!(
+                "The host refused the connection: {}",
+                coop_core::compat::reason_text(*r)
+            ),
             Event::Compat { lines, .. } => lines.join(" "),
             Event::Desync => "Co-op state differed from the host, repairing".into(),
             Event::Repaired => "Co-op state repaired".into(),
@@ -224,7 +227,12 @@ impl Status {
         let warn = if self.desync { " !" } else { "" };
         match (self.role, self.state) {
             (Role::Host, _) => {
-                let worst = self.peers.iter().filter(|p| !p.player.is_host()).map(|p| p.rtt_ms).max();
+                let worst = self
+                    .peers
+                    .iter()
+                    .filter(|p| !p.player.is_host())
+                    .map(|p| p.rtt_ms)
+                    .max();
                 let ping = worst.map_or(String::new(), |r| format!(" {r} ms"));
                 format!("{}P{ping}{warn}", self.peers.len() + 1)
             }
@@ -243,18 +251,35 @@ impl Status {
         match (self.role, self.state) {
             (Role::Host, _) => {
                 let n = self.peers.iter().filter(|p| !p.player.is_host()).count();
-                let who: Vec<String> =
-                    self.peers.iter().filter(|p| !p.player.is_host()).map(|p| format!("{} {} ms", p.name, p.rtt_ms)).collect();
-                let tail = if who.is_empty() { String::new() } else { format!(" | {}", who.join(", ")) };
-                format!("CO-OP host | {n} guest{}{tail}{warn}", if n == 1 { "" } else { "s" })
+                let who: Vec<String> = self
+                    .peers
+                    .iter()
+                    .filter(|p| !p.player.is_host())
+                    .map(|p| format!("{} {} ms", p.name, p.rtt_ms))
+                    .collect();
+                let tail = if who.is_empty() {
+                    String::new()
+                } else {
+                    format!(" | {}", who.join(", "))
+                };
+                format!(
+                    "CO-OP host | {n} guest{}{tail}{warn}",
+                    if n == 1 { "" } else { "s" }
+                )
             }
             (_, State::Connecting) => "CO-OP guest | connecting".into(),
             (_, State::Joining) => "CO-OP guest | loading the host's world".into(),
             (_, State::Reconnecting) => "CO-OP guest | host lost, reconnecting".into(),
-            (_, State::Rejected(r)) => format!("CO-OP guest | refused: {}", coop_core::compat::reason_text(r)),
+            (_, State::Rejected(r)) => format!(
+                "CO-OP guest | refused: {}",
+                coop_core::compat::reason_text(r)
+            ),
             _ => {
                 let ping = self.rtt_ms.map_or("-".to_string(), |r| format!("{r} ms"));
-                format!("CO-OP guest | ping {ping} | {} in session{warn}", self.peers.len() + 1)
+                format!(
+                    "CO-OP guest | ping {ping} | {} in session{warn}",
+                    self.peers.len() + 1
+                )
             }
         }
     }
@@ -352,19 +377,28 @@ pub(crate) fn made_up_id() -> u64 {
 }
 
 impl Session {
-    fn common(role: Role, cfg: &mut SessionConfig) -> Result<(Net, Option<LogFile>, Option<DumpFile>, Hello, LinkErrors), Error> {
+    fn common(
+        role: Role,
+        cfg: &mut SessionConfig,
+    ) -> Result<(Net, Option<LogFile>, Option<DumpFile>, Hello, LinkErrors), Error> {
         let (link, errors) = match cfg.transport.take() {
             Some(t) => (t, LinkErrors::default()),
             None => {
                 match role {
-                    Role::Host => parse_host_port(&cfg.addr).map(|_| ()).map_err(Error::Target)?,
-                    Role::Guest => JoinTarget::parse(&cfg.addr).map(|_| ()).map_err(Error::Target)?,
+                    Role::Host => parse_host_port(&cfg.addr)
+                        .map(|_| ())
+                        .map_err(Error::Target)?,
+                    Role::Guest => JoinTarget::parse(&cfg.addr)
+                        .map(|_| ())
+                        .map_err(Error::Target)?,
                 }
                 net::open(role, &cfg.name, &cfg.addr)?
             }
         };
         let log = match &cfg.log {
-            Some(p) => Some(LogFile::create(p).map_err(|e| Error::Io(format!("{}: {e}", p.display())))?),
+            Some(p) => {
+                Some(LogFile::create(p).map_err(|e| Error::Io(format!("{}: {e}", p.display())))?)
+            }
             None => None,
         };
         let dump = cfg.fields_dump.clone().map(DumpFile::new);
@@ -385,14 +419,25 @@ impl Session {
             } else {
                 cfg.mods_hash
             },
-            exe: cfg.compat.exe.chars().take(coop_core::compat::MAX_EXE_LEN).collect(),
+            exe: cfg
+                .compat
+                .exe
+                .chars()
+                .take(coop_core::compat::MAX_EXE_LEN)
+                .collect(),
             volatile_hash: cfg.compat.volatile_hash,
             plugins: listed,
         };
         Ok((Net::new(link, cfg.chaos.take()), log, dump, hello, errors))
     }
 
-    fn blank(role: Role, cfg: &SessionConfig, net: Net, log: Option<LogFile>, dump: Option<DumpFile>) -> Session {
+    fn blank(
+        role: Role,
+        cfg: &SessionConfig,
+        net: Net,
+        log: Option<LogFile>,
+        dump: Option<DumpFile>,
+    ) -> Session {
         Session {
             role,
             name: cfg.name.clone(),
@@ -423,7 +468,11 @@ impl Session {
     /// Starts hosting.
     pub fn host(mut cfg: SessionConfig) -> Result<Session, Error> {
         let (net, log, dump, hello, errors) = Self::common(Role::Host, &mut cfg)?;
-        let id = if cfg.session_id == 0 { made_up_id() } else { cfg.session_id };
+        let id = if cfg.session_id == 0 {
+            made_up_id()
+        } else {
+            cfg.session_id
+        };
         let mut hc = HostConfig::new(hello, id);
         hc.max_guests = cfg.max_guests;
         hc.compat.allow_mismatch = cfg.compat.allow_mismatch;
@@ -439,10 +488,22 @@ impl Session {
             last_roster_ms: 0,
         });
         if cfg.live {
-            s.live = Some(crate::live::Layer::new(Role::Host, cfg.policy.clone(), cfg.no_policy, cfg.native_dialogue));
+            s.live = Some(crate::live::Layer::new(
+                Role::Host,
+                cfg.policy.clone(),
+                cfg.no_policy,
+                cfg.native_dialogue,
+            ));
         }
         let pid = std::process::id() as u64;
-        s.log_ev("start", &[("role", V::S("host")), ("pid", V::U(pid)), ("name", V::S(&cfg.name))]);
+        s.log_ev(
+            "start",
+            &[
+                ("role", V::S("host")),
+                ("pid", V::U(pid)),
+                ("name", V::S(&cfg.name)),
+            ],
+        );
         if let Ok(port) = parse_host_port(&cfg.addr) {
             if cfg.addr.trim().len() > 0 {
                 s.log_ev("coop_listening", &[("port", V::U(port as u64))]);
@@ -488,10 +549,22 @@ impl Session {
             send_msg(&mut s.net, PlayerId::HOST, m);
         }
         if cfg.live {
-            s.live = Some(crate::live::Layer::new(Role::Guest, cfg.policy.clone(), cfg.no_policy, cfg.native_dialogue));
+            s.live = Some(crate::live::Layer::new(
+                Role::Guest,
+                cfg.policy.clone(),
+                cfg.no_policy,
+                cfg.native_dialogue,
+            ));
         }
         let pid = std::process::id() as u64;
-        s.log_ev("start", &[("role", V::S("guest")), ("pid", V::U(pid)), ("name", V::S(&cfg.name))]);
+        s.log_ev(
+            "start",
+            &[
+                ("role", V::S("guest")),
+                ("pid", V::U(pid)),
+                ("name", V::S(&cfg.name)),
+            ],
+        );
         Ok(s)
     }
 
@@ -534,7 +607,10 @@ impl Session {
     /// Host: commands guests (or [`Session::send_command`] on the host)
     /// asked for, oldest first. Empty on a guest.
     pub fn take_commands(&mut self) -> Vec<(PlayerId, Command)> {
-        self.host.as_mut().map(|h| std::mem::take(&mut h.commands)).unwrap_or_default()
+        self.host
+            .as_mut()
+            .map(|h| std::mem::take(&mut h.commands))
+            .unwrap_or_default()
     }
 
     /// Asks the host to run an action. On a guest it is sent reliably and
@@ -553,7 +629,14 @@ impl Session {
             line = Some((id, cmd.as_line()));
             let mut sent = None;
             if g.sync.phase() == GuestPhase::Active {
-                send_ext(&mut self.net, PlayerId::HOST, &Ext::Cmd { id, cmd: cmd.clone() });
+                send_ext(
+                    &mut self.net,
+                    PlayerId::HOST,
+                    &Ext::Cmd {
+                        id,
+                        cmd: cmd.clone(),
+                    },
+                );
                 sent = Some(now);
             }
             g.outbox.insert(id, (cmd, sent));
@@ -574,41 +657,67 @@ impl Session {
 
     /// A snapshot of the session.
     pub fn status(&self) -> Status {
-        let (state, player, peers, rtt, rev, desync, desyncs, repairs, snaps, pending) = if let Some(h) = &self.host {
-            let mut peers = vec![PeerInfo { player: PlayerId::HOST, name: self.name.clone(), rtt_ms: 0 }];
-            peers.extend(h.peers.iter().filter(|(_, p)| p.announced).map(|(id, p)| PeerInfo {
-                player: *id,
-                name: p.name.clone().unwrap_or_else(|| format!("player {}", id.0)),
-                rtt_ms: p.rtt_ms,
-            }));
-            let n = peers.len() - 1;
-            let _ = n;
-            (State::Hosting, PlayerId::HOST, peers, None, h.sync.store.rev().0, false, 0, h.sync.repairs_sent, h.sync.snapshots_sent, 0)
-        } else {
-            let g = self.guest.as_ref().expect("guest");
-            let state = match g.sync.phase() {
-                GuestPhase::Rejected(r) => State::Rejected(r),
-                GuestPhase::Active if !g.lost => State::Connected,
-                GuestPhase::Joining => State::Joining,
-                _ if g.ever_connected => State::Reconnecting,
-                GuestPhase::Active => State::Reconnecting,
-                _ => State::Connecting,
+        let (state, player, peers, rtt, rev, desync, desyncs, repairs, snaps, pending) =
+            if let Some(h) = &self.host {
+                let mut peers = vec![PeerInfo {
+                    player: PlayerId::HOST,
+                    name: self.name.clone(),
+                    rtt_ms: 0,
+                }];
+                peers.extend(
+                    h.peers
+                        .iter()
+                        .filter(|(_, p)| p.announced)
+                        .map(|(id, p)| PeerInfo {
+                            player: *id,
+                            name: p.name.clone().unwrap_or_else(|| format!("player {}", id.0)),
+                            rtt_ms: p.rtt_ms,
+                        }),
+                );
+                let n = peers.len() - 1;
+                let _ = n;
+                (
+                    State::Hosting,
+                    PlayerId::HOST,
+                    peers,
+                    None,
+                    h.sync.store.rev().0,
+                    false,
+                    0,
+                    h.sync.repairs_sent,
+                    h.sync.snapshots_sent,
+                    0,
+                )
+            } else {
+                let g = self.guest.as_ref().expect("guest");
+                let state = match g.sync.phase() {
+                    GuestPhase::Rejected(r) => State::Rejected(r),
+                    GuestPhase::Active if !g.lost => State::Connected,
+                    GuestPhase::Joining => State::Joining,
+                    _ if g.ever_connected => State::Reconnecting,
+                    GuestPhase::Active => State::Reconnecting,
+                    _ => State::Connecting,
+                };
+                let me = g.sync.player;
+                let peers = g
+                    .roster
+                    .iter()
+                    .filter(|p| p.player != me)
+                    .cloned()
+                    .collect();
+                (
+                    state,
+                    me,
+                    peers,
+                    g.rtt_ms,
+                    g.sync.store.rev().0,
+                    g.desync_open,
+                    g.sync.desyncs_detected,
+                    g.sync.repairs_applied,
+                    g.sync.snapshots_loaded,
+                    g.outbox.len(),
+                )
             };
-            let me = g.sync.player;
-            let peers = g.roster.iter().filter(|p| p.player != me).cloned().collect();
-            (
-                state,
-                me,
-                peers,
-                g.rtt_ms,
-                g.sync.store.rev().0,
-                g.desync_open,
-                g.sync.desyncs_detected,
-                g.sync.repairs_applied,
-                g.sync.snapshots_loaded,
-                g.outbox.len(),
-            )
-        };
         Status {
             role: self.role,
             state,
@@ -631,7 +740,13 @@ impl Session {
 
     /// Start of the frame: receive; a guest applies the replicated state.
     pub fn pre_frame(&mut self, gs: &mut GameState) {
-        self.pre_frame_with(gs, Opts { present: true, ctx: None });
+        self.pre_frame_with(
+            gs,
+            Opts {
+                present: true,
+                ctx: None,
+            },
+        );
     }
 
     /// [`Session::pre_frame`] with game data for journal text and names.
@@ -730,8 +845,16 @@ impl Session {
             let replies = h.sync.on_msg(from, m);
             for note in std::mem::take(&mut h.sync.compat_log) {
                 let who = format!("Player {}", note.player.0);
-                let lines = coop_core::compat::explain(&note.issues, coop_core::compat::Viewpoint::Host, &who, note.refused);
-                self.events.push(Event::Compat { lines, refused: note.refused });
+                let lines = coop_core::compat::explain(
+                    &note.issues,
+                    coop_core::compat::Viewpoint::Host,
+                    &who,
+                    note.refused,
+                );
+                self.events.push(Event::Compat {
+                    lines,
+                    refused: note.refused,
+                });
             }
             if h.sync.players().contains(&from) {
                 let fresh = !h.peers.contains_key(&from);
@@ -771,15 +894,25 @@ impl Session {
                 }
                 return;
             }
-            Msg::Delta { .. } | Msg::Snapshot(_) | Msg::Hash { .. } | Msg::Repair(_) => g.last_state_ms = now,
+            Msg::Delta { .. } | Msg::Snapshot(_) | Msg::Hash { .. } | Msg::Repair(_) => {
+                g.last_state_ms = now
+            }
             Msg::Welcome { player, .. } => g.sync.player = *player,
             _ => {}
         }
         let incompat = matches!(m, Msg::Incompat(_));
         let out = g.sync.on_msg(m);
         if incompat && !matches!(g.sync.phase(), GuestPhase::Rejected(_)) {
-            let lines = coop_core::compat::explain(&g.sync.compat_issues(), coop_core::compat::Viewpoint::Guest, "", false);
-            self.events.push(Event::Compat { lines, refused: false });
+            let lines = coop_core::compat::explain(
+                &g.sync.compat_issues(),
+                coop_core::compat::Viewpoint::Guest,
+                "",
+                false,
+            );
+            self.events.push(Event::Compat {
+                lines,
+                refused: false,
+            });
         }
         for r in &out {
             send_msg(&mut self.net, PlayerId::HOST, r);
@@ -791,11 +924,28 @@ impl Session {
                 let lines = if found.is_empty() {
                     vec![coop_core::compat::reason_text(r)]
                 } else {
-                    coop_core::compat::explain(&found, coop_core::compat::Viewpoint::Guest, "", true)
+                    coop_core::compat::explain(
+                        &found,
+                        coop_core::compat::Viewpoint::Guest,
+                        "",
+                        true,
+                    )
                 };
                 self.events.push(Event::Rejected(r));
-                self.events.push(Event::Compat { lines: lines.clone(), refused: true });
-                self.log_ev("error", &[("msg", V::S(&format!("host refused the connection: {r:?}: {}", lines.join(" "))))]);
+                self.events.push(Event::Compat {
+                    lines: lines.clone(),
+                    refused: true,
+                });
+                self.log_ev(
+                    "error",
+                    &[(
+                        "msg",
+                        V::S(&format!(
+                            "host refused the connection: {r:?}: {}",
+                            lines.join(" ")
+                        )),
+                    )],
+                );
             }
         }
     }
@@ -810,7 +960,9 @@ impl Session {
         };
         let now = self.now_ms;
         if let Some(h) = &mut self.host {
-            let Some(p) = h.peers.get_mut(&from) else { return };
+            let Some(p) = h.peers.get_mut(&from) else {
+                return;
+            };
             p.last_heard_ms = now;
             match e {
                 Ext::Info { name, rtt_ms } => {
@@ -830,7 +982,14 @@ impl Session {
                     if fresh {
                         let line = cmd.as_line();
                         h.commands.push((from, cmd));
-                        self.log_ev("cmd_recv", &[("from", V::U(from.0 as u64)), ("id", V::U(id as u64)), ("line", V::S(&line))]);
+                        self.log_ev(
+                            "cmd_recv",
+                            &[
+                                ("from", V::U(from.0 as u64)),
+                                ("id", V::U(id as u64)),
+                                ("line", V::S(&line)),
+                            ],
+                        );
                     }
                 }
                 _ => {}
@@ -847,7 +1006,13 @@ impl Session {
                 if g.place != Some(p) {
                     g.place = Some(p);
                     self.events.push(Event::PlaceChanged(p));
-                    self.log_ev("place", &[("cell", V::U(p.cell as u64)), ("world", V::U(p.world as u64))]);
+                    self.log_ev(
+                        "place",
+                        &[
+                            ("cell", V::U(p.cell as u64)),
+                            ("world", V::U(p.world as u64)),
+                        ],
+                    );
                 }
             }
             Ext::CmdAck(id) => {
@@ -864,7 +1029,10 @@ impl Session {
                 let old: Vec<PeerInfo> = g.roster.clone();
                 let mut joined = Vec::new();
                 let mut left = Vec::new();
-                for p in list.iter().filter(|p| p.player != me && !p.player.is_host()) {
+                for p in list
+                    .iter()
+                    .filter(|p| p.player != me && !p.player.is_host())
+                {
                     if !old.iter().any(|o| o.player == p.player) && !old.is_empty() {
                         joined.push((p.player, p.name.clone()));
                     }
@@ -902,7 +1070,13 @@ impl Session {
             for to in h.peers.keys() {
                 send_ext(&mut self.net, *to, &Ext::Place(now_place));
             }
-            self.log_ev("place", &[("cell", V::U(now_place.cell as u64)), ("world", V::U(now_place.world as u64))]);
+            self.log_ev(
+                "place",
+                &[
+                    ("cell", V::U(now_place.cell as u64)),
+                    ("world", V::U(now_place.world as u64)),
+                ],
+            );
         }
     }
 
@@ -959,7 +1133,10 @@ impl Session {
             let gone: Vec<PlayerId> = h
                 .peers
                 .iter()
-                .filter(|(id, p)| !alive.contains(id) || now.saturating_sub(p.last_heard_ms) > self.peer_timeout_ms)
+                .filter(|(id, p)| {
+                    !alive.contains(id)
+                        || now.saturating_sub(p.last_heard_ms) > self.peer_timeout_ms
+                })
                 .map(|(id, _)| *id)
                 .collect();
             for id in gone {
@@ -967,7 +1144,13 @@ impl Session {
                 if let Some(p) = h.peers.remove(&id) {
                     if p.announced {
                         let name = p.name.unwrap_or_else(|| format!("player {}", id.0));
-                        logs.push(("peer_leave", vec![("player".into(), id.0.to_string()), ("name".into(), name.clone())]));
+                        logs.push((
+                            "peer_leave",
+                            vec![
+                                ("player".into(), id.0.to_string()),
+                                ("name".into(), name.clone()),
+                            ],
+                        ));
                         self.events.push(Event::PeerLeft(id, name));
                     }
                 }
@@ -978,7 +1161,13 @@ impl Session {
                     p.announced = true;
                     h.roster_dirty = true;
                     let name = p.name.clone().unwrap_or_else(|| format!("player {}", id.0));
-                    logs.push(("peer_join", vec![("player".into(), id.0.to_string()), ("name".into(), name.clone())]));
+                    logs.push((
+                        "peer_join",
+                        vec![
+                            ("player".into(), id.0.to_string()),
+                            ("name".into(), name.clone()),
+                        ],
+                    ));
                     logs.push(("coop_connected", vec![("role".into(), "host".into())]));
                     self.events.push(Event::PeerJoined(*id, name));
                 }
@@ -986,12 +1175,21 @@ impl Session {
             if h.roster_dirty || now.saturating_sub(h.last_roster_ms) >= 5000 {
                 h.roster_dirty = false;
                 h.last_roster_ms = now;
-                let mut list = vec![PeerInfo { player: PlayerId::HOST, name: self.name.clone(), rtt_ms: 0 }];
-                list.extend(h.peers.iter().filter(|(_, p)| p.announced).map(|(id, p)| PeerInfo {
-                    player: *id,
-                    name: p.name.clone().unwrap_or_else(|| format!("player {}", id.0)),
-                    rtt_ms: p.rtt_ms,
-                }));
+                let mut list = vec![PeerInfo {
+                    player: PlayerId::HOST,
+                    name: self.name.clone(),
+                    rtt_ms: 0,
+                }];
+                list.extend(
+                    h.peers
+                        .iter()
+                        .filter(|(_, p)| p.announced)
+                        .map(|(id, p)| PeerInfo {
+                            player: *id,
+                            name: p.name.clone().unwrap_or_else(|| format!("player {}", id.0)),
+                            rtt_ms: p.rtt_ms,
+                        }),
+                );
                 let e = Ext::Roster(list);
                 for to in h.peers.keys() {
                     send_ext(&mut self.net, *to, &e);
@@ -1020,7 +1218,9 @@ impl Session {
             let _ = is_active;
             match phase {
                 GuestPhase::Active => {
-                    if now.saturating_sub(g.last_state_ms) > STALE_MS && now.saturating_sub(g.last_retry_ms) >= RETRY_MS - 1000 {
+                    if now.saturating_sub(g.last_state_ms) > STALE_MS
+                        && now.saturating_sub(g.last_retry_ms) >= RETRY_MS - 1000
+                    {
                         if !g.lost {
                             g.lost = true;
                             self.events.push(Event::Lost);
@@ -1045,23 +1245,36 @@ impl Session {
                 _ => {}
             }
             if matches!(phase, GuestPhase::Joining | GuestPhase::Active)
-                && g.last_info_ms.map_or(true, |t| now.saturating_sub(t) >= 2000)
+                && g.last_info_ms
+                    .map_or(true, |t| now.saturating_sub(t) >= 2000)
             {
                 g.last_info_ms = Some(now);
-                let e = Ext::Info { name: self.name.clone(), rtt_ms: g.rtt_ms.unwrap_or(0) };
+                let e = Ext::Info {
+                    name: self.name.clone(),
+                    rtt_ms: g.rtt_ms.unwrap_or(0),
+                };
                 send_ext(&mut self.net, PlayerId::HOST, &e);
             }
             if g.sync.phase() == GuestPhase::Active {
                 let due: Vec<u32> = g
                     .outbox
                     .iter()
-                    .filter(|(_, (_, sent))| sent.map_or(true, |t| now.saturating_sub(t) >= CMD_RESEND_MS))
+                    .filter(|(_, (_, sent))| {
+                        sent.map_or(true, |t| now.saturating_sub(t) >= CMD_RESEND_MS)
+                    })
                     .map(|(id, _)| *id)
                     .collect();
                 for id in due {
                     if let Some((cmd, sent)) = g.outbox.get_mut(&id) {
                         *sent = Some(now);
-                        send_ext(&mut self.net, PlayerId::HOST, &Ext::Cmd { id, cmd: cmd.clone() });
+                        send_ext(
+                            &mut self.net,
+                            PlayerId::HOST,
+                            &Ext::Cmd {
+                                id,
+                                cmd: cmd.clone(),
+                            },
+                        );
                     }
                 }
             }
@@ -1071,7 +1284,10 @@ impl Session {
             if new_desync {
                 g.desync_open = true;
                 self.events.push(Event::Desync);
-                logs.push(("desync", vec![("total".into(), g.sync.desyncs_detected.to_string())]));
+                logs.push((
+                    "desync",
+                    vec![("total".into(), g.sync.desyncs_detected.to_string())],
+                ));
             } else if new_check {
                 g.desync_open = false;
             }
@@ -1080,7 +1296,13 @@ impl Session {
             if g.sync.repairs_applied > g.seen_repairs {
                 g.seen_repairs = g.sync.repairs_applied;
                 self.events.push(Event::Repaired);
-                logs.push(("coop_repair", vec![("kind".into(), "hash".into()), ("subsystem".into(), "shared".into())]));
+                logs.push((
+                    "coop_repair",
+                    vec![
+                        ("kind".into(), "hash".into()),
+                        ("subsystem".into(), "shared".into()),
+                    ],
+                ));
             }
         }
         let ready_now = match (&self.host, &self.guest) {
@@ -1091,17 +1313,31 @@ impl Session {
         if ready_now && !self.ready {
             self.ready = true;
             self.events.push(Event::Ready);
-            let peers = if self.host.is_some() { self.status().peers.len() as u64 } else { 1 };
+            let peers = if self.host.is_some() {
+                self.status().peers.len() as u64
+            } else {
+                1
+            };
             let role = if self.host.is_some() { "host" } else { "guest" };
-            self.log_ev("coop_ready", &[("role", V::S(role)), ("peers", V::U(peers))]);
+            self.log_ev(
+                "coop_ready",
+                &[("role", V::S(role)), ("peers", V::U(peers))],
+            );
         }
         let errs = self.take_link_errors();
         for e in errs {
-            let ev = if e.starts_with("send error") { "link_warn" } else { "error" };
+            let ev = if e.starts_with("send error") {
+                "link_warn"
+            } else {
+                "error"
+            };
             self.log_ev(ev, &[("msg", V::S(&e))]);
         }
         for (ev, fields) in logs {
-            let f: Vec<(&str, V)> = fields.iter().map(|(k, v)| (k.as_str(), V::S(v.as_str()))).collect();
+            let f: Vec<(&str, V)> = fields
+                .iter()
+                .map(|(k, v)| (k.as_str(), V::S(v.as_str())))
+                .collect();
             self.log_ev(ev, &f);
         }
     }
@@ -1144,7 +1380,10 @@ impl Session {
             return;
         }
         let (rev, applies) = match (&self.host, &self.guest) {
-            (Some(h), _) => (h.sync.store.rev().0, h.bridge.uncovered_total.values().sum::<u32>() as u64),
+            (Some(h), _) => (
+                h.sync.store.rev().0,
+                h.bridge.uncovered_total.values().sum::<u32>() as u64,
+            ),
             (_, Some(g)) => (g.sync.store.rev().0, g.bridge.applies as u64),
             _ => (0, 0),
         };
@@ -1158,11 +1397,19 @@ impl Session {
         let root = Self::state_root(gs);
         self.root = Some(root);
         let hex = format!("{root:016x}");
-        let role = if self.role == Role::Host { "host" } else { "guest" };
+        let role = if self.role == Role::Host {
+            "host"
+        } else {
+            "guest"
+        };
         let player = self.status().player.0 as u64;
         let now = self.now_ms;
         if let Some(d) = &self.dump {
-            let fields: Vec<String> = gs.export_fields().iter().map(|(f, v)| format!("{:08X} {v:?}", f.0)).collect();
+            let fields: Vec<String> = gs
+                .export_fields()
+                .iter()
+                .map(|(f, v)| format!("{:08X} {v:?}", f.0))
+                .collect();
             d.write(
                 &[
                     ("role", V::S(role)),

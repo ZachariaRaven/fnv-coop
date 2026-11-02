@@ -114,7 +114,11 @@ pub fn host_frame(cx: crate::coop::apply::Ctx, gs: &mut GameState, now_ms: u64) 
     if gs.coop.gate.is_none() {
         return;
     }
-    let dt = if gs.coop.campaign.last_ms == 0 { 0.0 } else { now_ms.saturating_sub(gs.coop.campaign.last_ms) as f32 / 1000.0 };
+    let dt = if gs.coop.campaign.last_ms == 0 {
+        0.0
+    } else {
+        now_ms.saturating_sub(gs.coop.campaign.last_ms) as f32 / 1000.0
+    };
     gs.coop.campaign.last_ms = now_ms.max(1);
     // new members: late join policy
     let members = gs.coop.gate.as_ref().map_or(0, |g| g.members().0);
@@ -152,7 +156,9 @@ impl GameState {
         if self.coop.campaign.configured {
             return;
         }
-        let Some(gate) = self.coop.gate.as_mut() else { return };
+        let Some(gate) = self.coop.gate.as_mut() else {
+            return;
+        };
         let table = gate.table_arc();
         // a table still keyed by the plugins' own index bytes (one the session did not
         // resolve with `policy_ids`): map the gate's lookups to the running load order. A
@@ -176,7 +182,13 @@ impl GameState {
 pub fn table_to_load_order(order: &LoadOrder, table: &coop_policy::PolicyTable) -> Vec<(u32, u32)> {
     let mut out = Vec::new();
     for row in table.rows() {
-        let Some(p) = order.plugins().iter().find(|p| p.name.eq_ignore_ascii_case(&row.plugin)) else { continue };
+        let Some(p) = order
+            .plugins()
+            .iter()
+            .find(|p| p.name.eq_ignore_ascii_case(&row.plugin))
+        else {
+            continue;
+        };
         let load = p.to_global(FormId(row.id)).0;
         if load != row.id {
             out.push((load, row.id));

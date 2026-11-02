@@ -51,11 +51,33 @@ fn self_place(gs: &GameState, me: PlayerId) -> Option<(PlayerId, u32, [f32; 3])>
 }
 
 /// Host side, once a frame after the live adapter ran.
-pub(crate) fn host_frame(cx: Ctx, gs: &mut GameState, live: &mut HostLive, view: &mut LiveView, now_ms: u64) {
-    let loaded: BTreeSet<u32> = live.roam.model.loaded_of(PlayerId::HOST).into_iter().map(|c| c.0).collect();
-    gs.coop.live.host_loaded = if loaded.is_empty() { None } else { Some(loaded.clone()) };
+pub(crate) fn host_frame(
+    cx: Ctx,
+    gs: &mut GameState,
+    live: &mut HostLive,
+    view: &mut LiveView,
+    now_ms: u64,
+) {
+    let loaded: BTreeSet<u32> = live
+        .roam
+        .model
+        .loaded_of(PlayerId::HOST)
+        .into_iter()
+        .map(|c| c.0)
+        .collect();
+    gs.coop.live.host_loaded = if loaded.is_empty() {
+        None
+    } else {
+        Some(loaded.clone())
+    };
     for (target, cell, func, args) in std::mem::take(&mut gs.coop.live.deferred_out) {
-        live.roam.deferred.queue(coop_core::ids::FormId(target.0), roam_ops::cell_id(cell), &func, args, now_ms);
+        live.roam.deferred.queue(
+            coop_core::ids::FormId(target.0),
+            roam_ops::cell_id(cell),
+            &func,
+            args,
+            now_ms,
+        );
     }
     let ready = live.roam.take_ready_local();
     if !ready.is_empty() {
@@ -79,7 +101,12 @@ pub(crate) fn host_frame(cx: Ctx, gs: &mut GameState, live: &mut HostLive, view:
     }
     let s = &live.roam;
     view.roam = RoamView {
-        peers: s.model.places().into_iter().map(|(p, c, pos)| (p, c.0, pos)).collect(),
+        peers: s
+            .model
+            .places()
+            .into_iter()
+            .map(|(p, c, pos)| (p, c.0, pos))
+            .collect(),
         owned: owned.into_iter().collect(),
         dormant,
         remote_actors: view.remote_actors.len() as u32,
@@ -104,10 +131,15 @@ pub(crate) fn guest_frame(gs: &GameState, live: &mut GuestLive, view: &mut LiveV
     }
     if let Some(c) = gs.player_cell {
         let loaded = live.roam.graph.loaded_set(coop_core::ids::CellId(c.0));
-        view.remote_actors.retain(|a| loaded.contains(&coop_core::ids::CellId(a.cell)));
+        view.remote_actors
+            .retain(|a| loaded.contains(&coop_core::ids::CellId(a.cell)));
     }
-    let mut peers: BTreeMap<PlayerId, (u32, [f32; 3])> =
-        live.roam.places.iter().map(|(p, r)| (*p, (r.cell.0, r.pos))).collect();
+    let mut peers: BTreeMap<PlayerId, (u32, [f32; 3])> = live
+        .roam
+        .places
+        .iter()
+        .map(|(p, r)| (*p, (r.cell.0, r.pos)))
+        .collect();
     for a in &view.avatars {
         peers.insert(a.player, (a.cell, a.pos));
     }

@@ -160,18 +160,26 @@ impl SceneClient {
 
     /// True when any scene with a camera of its own includes this player.
     pub fn camera_taken(&self) -> bool {
-        self.scenes.values().any(|s| s.info.participants.contains(self.me) && s.info.spec.camera != CameraMode::Free)
+        self.scenes.values().any(|s| {
+            s.info.participants.contains(self.me) && s.info.spec.camera != CameraMode::Free
+        })
     }
 
     /// The scenes as this machine shows them, lowest id first.
     pub fn views(&self, now_ms: u64) -> Vec<SceneView> {
-        self.scenes.values().map(|s| self.view_of(s, now_ms)).collect()
+        self.scenes
+            .values()
+            .map(|s| self.view_of(s, now_ms))
+            .collect()
     }
 
     /// The scene one machine is mainly in (a participant's, playing first).
     pub fn primary(&self, now_ms: u64) -> Option<SceneView> {
         let v = self.views(now_ms);
-        v.iter().find(|s| s.participant && s.phase == Phase::Playing).or_else(|| v.iter().find(|s| s.participant || s.waiting)).cloned()
+        v.iter()
+            .find(|s| s.participant && s.phase == Phase::Playing)
+            .or_else(|| v.iter().find(|s| s.participant || s.waiting))
+            .cloned()
     }
 
     fn view_of(&self, s: &CScene, now_ms: u64) -> SceneView {
@@ -222,7 +230,11 @@ impl SceneClient {
 
     /// The player entered a running scene's cell and asks to merge in.
     pub fn join(&mut self, id: u32) {
-        if self.scenes.get(&id).is_some_and(|s| !s.info.participants.contains(self.me)) {
+        if self
+            .scenes
+            .get(&id)
+            .is_some_and(|s| !s.info.participants.contains(self.me))
+        {
             self.out.push(SceneMsg::Join { id });
         }
     }
@@ -243,7 +255,8 @@ impl SceneClient {
 
     fn upsert(&mut self, info: SceneInfo, now_ms: u64, replay: bool) {
         let id = info.id;
-        let zero = (replay && info.phase == Phase::Playing).then(|| now_ms.saturating_sub(u64::from(info.elapsed_ms)));
+        let zero = (replay && info.phase == Phase::Playing)
+            .then(|| now_ms.saturating_sub(u64::from(info.elapsed_ms)));
         match self.scenes.get_mut(&id) {
             Some(s) => {
                 let was = s.info.phase;
@@ -267,7 +280,15 @@ impl SceneClient {
                 if participant && info.phase == Phase::Gather {
                     self.out.push(SceneMsg::Ready { id });
                 }
-                self.scenes.insert(id, CScene { info, zero_local: zero, started: false, done_sent: false });
+                self.scenes.insert(
+                    id,
+                    CScene {
+                        info,
+                        zero_local: zero,
+                        started: false,
+                        done_sent: false,
+                    },
+                );
             }
         }
     }
@@ -330,26 +351,45 @@ impl SceneClient {
                 }
             }
             SceneMsg::Close { id, reason } => self.drop_scene(id, reason),
-            SceneMsg::TimeSkip { event, hours, sleeping, clock } => {
+            SceneMsg::TimeSkip {
+                event,
+                hours,
+                sleeping,
+                clock,
+            } => {
                 if event > self.last_event {
                     self.last_event = event;
                     self.skips += 1;
                     self.clock = Some((clock, now_ms));
-                    self.notices.push(Notice::TimeSkip { event, hours, sleeping, clock });
+                    self.notices.push(Notice::TimeSkip {
+                        event,
+                        hours,
+                        sleeping,
+                        clock,
+                    });
                 }
             }
             SceneMsg::Clock { clock } => self.clock = Some((clock, now_ms)),
-            SceneMsg::Ready { .. } | SceneMsg::Done { .. } | SceneMsg::SkipVote { .. } | SceneMsg::Join { .. } => {}
+            SceneMsg::Ready { .. }
+            | SceneMsg::Done { .. }
+            | SceneMsg::SkipVote { .. }
+            | SceneMsg::Join { .. } => {}
         }
     }
 
     /// Per-frame: scenes whose time zero arrived start now.
     pub fn tick(&mut self, now_ms: u64) {
         for s in self.scenes.values_mut() {
-            if !s.started && s.info.phase == Phase::Playing && s.zero_local.is_some_and(|z| now_ms >= z) {
+            if !s.started
+                && s.info.phase == Phase::Playing
+                && s.zero_local.is_some_and(|z| now_ms >= z)
+            {
                 s.started = true;
                 let z = s.zero_local.unwrap_or(now_ms);
-                self.notices.push(Notice::Started { id: s.info.id, offset_ms: now_ms.saturating_sub(z).min(u64::from(u32::MAX)) as u32 });
+                self.notices.push(Notice::Started {
+                    id: s.info.id,
+                    offset_ms: now_ms.saturating_sub(z).min(u64::from(u32::MAX)) as u32,
+                });
             }
         }
     }
@@ -358,8 +398,8 @@ impl SceneClient {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::scene::host::SceneHost;
     use crate::interest::Audience;
+    use crate::scene::host::SceneHost;
 
     fn p(n: u8) -> PlayerId {
         PlayerId(n)
@@ -395,12 +435,25 @@ mod tests {
         let mut h = SceneHost::new();
         h.on_join(p(1), 0, None);
         h.on_join(p(2), 0, None);
-        (h, vec![SceneClient::new(p(0)), SceneClient::new(p(1)), SceneClient::new(p(2))])
+        (
+            h,
+            vec![
+                SceneClient::new(p(0)),
+                SceneClient::new(p(1)),
+                SceneClient::new(p(2)),
+            ],
+        )
     }
 
     fn movie() -> SceneSpec {
         let mut s = SceneSpec::new(SceneKind::Movie, 9);
-        s.movie = Some(Movie { file: "a.bik".into(), interruptable: true, mute_audio: true, pause_music: true, letterbox: true });
+        s.movie = Some(Movie {
+            file: "a.bik".into(),
+            interruptable: true,
+            mute_audio: true,
+            pause_music: true,
+            letterbox: true,
+        });
         s.locks = Locks::ALL;
         s.camera = CameraMode::Movie;
         s.skip = SkipRule::Unanimous;
@@ -412,11 +465,19 @@ mod tests {
         let (mut h, mut cs) = setup();
         let (id, o) = h.open(movie(), 1_000).unwrap();
         deliver(o, &mut cs, 1_010);
-        assert!(cs.iter().all(|c| c.locks() == Locks::ALL), "locked during the gather");
+        assert!(
+            cs.iter().all(|c| c.locks() == Locks::ALL),
+            "locked during the gather"
+        );
         pump(&mut h, &mut cs, 1_030);
         for c in &mut cs {
             c.tick(1_100);
-            assert!(c.take_notices().iter().all(|n| !matches!(n, Notice::Started { .. })), "not before time zero");
+            assert!(
+                c.take_notices()
+                    .iter()
+                    .all(|n| !matches!(n, Notice::Started { .. })),
+                "not before time zero"
+            );
         }
         let o = h.tick(1_040);
         assert!(o.is_empty());
@@ -424,7 +485,11 @@ mod tests {
         for c in &mut cs {
             c.tick(1_330);
             let n = c.take_notices();
-            assert!(n.iter().any(|n| matches!(n, Notice::Started { id: i, offset_ms: 0 } if *i == id)), "{n:?}");
+            assert!(
+                n.iter()
+                    .any(|n| matches!(n, Notice::Started { id: i, offset_ms: 0 } if *i == id)),
+                "{n:?}"
+            );
         }
         let v = cs[1].primary(1_830).unwrap();
         assert_eq!(v.elapsed_ms, 500);
@@ -441,8 +506,13 @@ mod tests {
             cs[who].skip(id, true);
             pump(&mut h, &mut cs, 10 + who as u64);
         }
-        assert!(cs.iter().all(|c| c.count() == 0 && c.locks() == Locks::NONE));
-        assert!(cs[2].take_notices().iter().any(|n| matches!(n, Notice::Closed(_, EndReason::Skipped))));
+        assert!(cs
+            .iter()
+            .all(|c| c.count() == 0 && c.locks() == Locks::NONE));
+        assert!(cs[2]
+            .take_notices()
+            .iter()
+            .any(|n| matches!(n, Notice::Closed(_, EndReason::Skipped))));
     }
 
     #[test]
@@ -467,8 +537,16 @@ mod tests {
     #[test]
     fn time_skips_apply_once_even_when_the_message_repeats_or_reorders() {
         let mut c = SceneClient::new(p(1));
-        let clock = ClockSnap { hour: 9.0f32.to_bits(), ..Default::default() };
-        let m = |event| SceneMsg::TimeSkip { event, hours: 8, sleeping: true, clock };
+        let clock = ClockSnap {
+            hour: 9.0f32.to_bits(),
+            ..Default::default()
+        };
+        let m = |event| SceneMsg::TimeSkip {
+            event,
+            hours: 8,
+            sleeping: true,
+            clock,
+        };
         c.on_msg(m(2), 0);
         c.on_msg(m(2), 1);
         c.on_msg(m(1), 2);
@@ -502,7 +580,10 @@ mod tests {
         cs[1].take_notices();
         cs[1].abort_all();
         assert_eq!(cs[1].count(), 0);
-        assert!(cs[1].take_notices().iter().any(|n| matches!(n, Notice::Closed(_, EndReason::Aborted))));
+        assert!(cs[1]
+            .take_notices()
+            .iter()
+            .any(|n| matches!(n, Notice::Closed(_, EndReason::Aborted))));
         assert_eq!(cs[1].locks(), Locks::NONE);
     }
 
@@ -523,7 +604,10 @@ mod tests {
         assert_eq!(cs[2].locks(), Locks(Locks::MOVEMENT));
         assert!(cs[2].camera_taken());
         cs[2].tick(2_000);
-        assert!(cs[2].take_notices().iter().any(|n| matches!(n, Notice::Started { offset_ms, .. } if *offset_ms >= 1_600)));
+        assert!(cs[2]
+            .take_notices()
+            .iter()
+            .any(|n| matches!(n, Notice::Started { offset_ms, .. } if *offset_ms >= 1_600)));
     }
 
     #[test]
@@ -539,6 +623,9 @@ mod tests {
             c.on_msg(x.msg, 1_000);
         }
         c.tick(1_000 + u64::from(GO_LEAD_MS) - 100);
-        assert!(c.take_notices().iter().any(|n| matches!(n, Notice::Started { .. })));
+        assert!(c
+            .take_notices()
+            .iter()
+            .any(|n| matches!(n, Notice::Started { .. })));
     }
 }

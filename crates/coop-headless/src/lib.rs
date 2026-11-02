@@ -8,11 +8,10 @@
 //! every stand-in is listed in the verdict's `modelled` field.
 
 pub mod backend;
-pub mod social_bot;
 pub mod bot;
+pub mod campaign_bot;
 pub mod checklist;
 pub mod cli;
-pub mod campaign_bot;
 pub mod data;
 pub mod expect;
 pub mod json;
@@ -23,6 +22,7 @@ pub mod peer;
 pub mod questwalk;
 pub mod scenario;
 pub mod sim;
+pub mod social_bot;
 pub mod suite;
 pub mod verdict;
 pub mod watch;

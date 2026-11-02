@@ -38,7 +38,12 @@ pub struct CellGraph {
 
 impl Default for CellGraph {
     fn default() -> Self {
-        CellGraph { grid: BTreeMap::new(), by_pos: BTreeMap::new(), links: BTreeMap::new(), radius: GRID_RADIUS }
+        CellGraph {
+            grid: BTreeMap::new(),
+            by_pos: BTreeMap::new(),
+            links: BTreeMap::new(),
+            radius: GRID_RADIUS,
+        }
     }
 }
 
@@ -75,7 +80,8 @@ impl CellGraph {
     /// True when both cells are exterior cells of the same worldspace (their
     /// coordinates share one frame, so distances across them mean something).
     pub fn same_space(&self, a: CellId, b: CellId) -> bool {
-        a == b || matches!((self.grid_of(a), self.grid_of(b)), (Some(p), Some(q)) if p.world == q.world)
+        a == b
+            || matches!((self.grid_of(a), self.grid_of(b)), (Some(p), Some(q)) if p.world == q.world)
     }
 
     /// Every cell a peer standing in `home` has loaded: the cell itself, the
@@ -86,7 +92,11 @@ impl CellGraph {
         if let Some(g) = self.grid.get(&home) {
             for dx in -self.radius..=self.radius {
                 for dy in -self.radius..=self.radius {
-                    if let Some(c) = self.by_pos.get(&GridPos { world: g.world, x: g.x + dx, y: g.y + dy }) {
+                    if let Some(c) = self.by_pos.get(&GridPos {
+                        world: g.world,
+                        x: g.x + dx,
+                        y: g.y + dy,
+                    }) {
                         s.insert(*c);
                     }
                 }
@@ -130,7 +140,11 @@ mod tests {
         g.link(CellId(5), CellId(1000 + 55));
         assert_eq!(g.loaded_set(CellId(5)).len(), 2);
         assert!(g.loaded_set(CellId(1000 + 55)).contains(&CellId(5)));
-        assert_eq!(g.loaded_set(CellId(77)).len(), 1, "unknown cells load alone");
+        assert_eq!(
+            g.loaded_set(CellId(77)).len(),
+            1,
+            "unknown cells load alone"
+        );
         assert!(g.same_space(CellId(1000), CellId(1099)));
         assert!(!g.same_space(CellId(5), CellId(1000)));
     }

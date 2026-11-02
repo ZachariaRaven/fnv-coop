@@ -20,8 +20,8 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 
-use esm::{FormId, FourCC, LoadOrder};
 use crate::coop::Domain;
+use esm::{FormId, FourCC, LoadOrder};
 use script::interp::{self, Host, Locals};
 use script::{Arg, Call, Script};
 
@@ -2450,7 +2450,9 @@ impl Facts<'_> {
         let (mut moving, mut running) = if player {
             (s.player_moving, s.player_running)
         } else {
-            motion.or(puppet.map(|p| (p.moving, p.running))).unwrap_or((false, false))
+            motion
+                .or(puppet.map(|p| (p.moving, p.running)))
+                .unwrap_or((false, false))
         };
         // The one noticed's perks' "Ignore Running During Detection"
         // (entry point 31, Silent Running; `008a0d10`): they never count
@@ -2493,7 +2495,10 @@ impl Facts<'_> {
             } else {
                 av(other, 42)
             },
-            target_level: puppet.map_or_else(|| f32::from(self.level(other).unwrap_or(1)), |p| f32::from(p.level)),
+            target_level: puppet.map_or_else(
+                || f32::from(self.level(other).unwrap_or(1)),
+                |p| f32::from(p.level),
+            ),
             detector_level: f32::from(self.level(who).unwrap_or(1)),
         })
     }
@@ -3444,7 +3449,7 @@ impl<'a> Runner<'a> {
         else {
             return false;
         };
-        let names =|b: &script::Block, who: Option<FormId>| match b.args.first() {
+        let names = |b: &script::Block, who: Option<FormId>| match b.args.first() {
             None => true,
             Some(Arg::Word(w)) => {
                 let id = if w.eq_ignore_ascii_case("player") || w.eq_ignore_ascii_case("playerref")
@@ -3932,7 +3937,9 @@ impl<'a> Runner<'a> {
         if self.depth >= MAX_DEPTH || self.guest_skip() {
             return false;
         }
-        if self.state.coop.authority != crate::coop::Authority::Single && !self.state.coop_gate_stage(quest_id, stage) {
+        if self.state.coop.authority != crate::coop::Authority::Single
+            && !self.state.coop_gate_stage(quest_id, stage)
+        {
             return false;
         }
         let Some(quest) = self.scripts.quest(self.order, quest_id) else {
@@ -4700,7 +4707,9 @@ impl<'a> Runner<'a> {
             "SetPlayerTeammate" => {
                 let who = target?;
                 if arg(0).number() != 0.0 {
-                    if self.state.coop.authority == crate::coop::Authority::Single || self.state.coop_recruit_ok(who) {
+                    if self.state.coop.authority == crate::coop::Authority::Single
+                        || self.state.coop_recruit_ok(who)
+                    {
                         self.state.teammates.insert(who);
                     }
                 } else {
@@ -5065,7 +5074,12 @@ impl<'a> Runner<'a> {
 impl Runner<'_> {
     /// Runs one command by name, as a script's call of it would (a co-op
     /// operation deferred for an unloaded cell, replayed once it loads).
-    pub fn apply_call(&mut self, name: &str, target: Option<FormId>, args: &[Value]) -> Option<f64> {
+    pub fn apply_call(
+        &mut self,
+        name: &str,
+        target: Option<FormId>,
+        args: &[Value],
+    ) -> Option<f64> {
         self.change(name, target, args)
     }
 }
@@ -5108,11 +5122,15 @@ impl Host for Runner<'_> {
         let value = if self.state.is_guest() {
             // Safety net: on a guest only pure queries run; anything else
             // is a refused write that reports success (value 0).
-            self.facts().value(call.function, target, &args).or_else(|| {
-                self.state.coop.stats.suppressed_calls += 1;
-                Some(0.0)
-            })
-        } else if let Some(v) = crate::coop::roam_ops::defer(self.state, self.order, sig.name, target, &args) {
+            self.facts()
+                .value(call.function, target, &args)
+                .or_else(|| {
+                    self.state.coop.stats.suppressed_calls += 1;
+                    Some(0.0)
+                })
+        } else if let Some(v) =
+            crate::coop::roam_ops::defer(self.state, self.order, sig.name, target, &args)
+        {
             Some(v)
         } else {
             self.change(sig.name, target, &args)

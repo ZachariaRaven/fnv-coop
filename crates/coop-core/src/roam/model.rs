@@ -112,7 +112,10 @@ fn dist2(a: [f32; 3], b: [f32; 3]) -> f32 {
 impl SceneModel {
     /// Empty model.
     pub fn new() -> Self {
-        SceneModel { graph: CellGraph::new(), ..Default::default() }
+        SceneModel {
+            graph: CellGraph::new(),
+            ..Default::default()
+        }
     }
 
     /// Records where a peer's player stands (call on every avatar sample).
@@ -126,7 +129,14 @@ impl SceneModel {
             return CellDelta::default();
         }
         let loaded = self.graph.loaded_set(home);
-        let old = self.peers.insert(p, PeerScene { home, pos, loaded: loaded.clone() });
+        let old = self.peers.insert(
+            p,
+            PeerScene {
+                home,
+                pos,
+                loaded: loaded.clone(),
+            },
+        );
         let before = old.map(|o| o.loaded).unwrap_or_default();
         let d = CellDelta {
             entered: loaded.difference(&before).copied().collect(),
@@ -143,8 +153,16 @@ impl SceneModel {
     pub fn remove_peer(&mut self, p: PlayerId) -> CellDelta {
         self.follow.remove(&p);
         self.follow.retain(|_, leader| *leader != p);
-        let left = self.peers.remove(&p).map(|s| s.loaded.into_iter().collect()).unwrap_or_default();
-        CellDelta { entered: vec![], left, moved_home: false }
+        let left = self
+            .peers
+            .remove(&p)
+            .map(|s| s.loaded.into_iter().collect())
+            .unwrap_or_default();
+        CellDelta {
+            entered: vec![],
+            left,
+            moved_home: false,
+        }
     }
 
     /// A peer's scene.
@@ -159,12 +177,19 @@ impl SceneModel {
 
     /// The cells a peer has loaded.
     pub fn loaded_of(&self, p: PlayerId) -> BTreeSet<CellId> {
-        self.peers.get(&p).map(|s| s.loaded.clone()).unwrap_or_default()
+        self.peers
+            .get(&p)
+            .map(|s| s.loaded.clone())
+            .unwrap_or_default()
     }
 
     /// Peers that have `cell` loaded, lowest slot first.
     pub fn peers_loading(&self, cell: CellId) -> Vec<PlayerId> {
-        self.peers.iter().filter(|(_, s)| s.loaded.contains(&cell)).map(|(p, _)| *p).collect()
+        self.peers
+            .iter()
+            .filter(|(_, s)| s.loaded.contains(&cell))
+            .map(|(p, _)| *p)
+            .collect()
     }
 
     /// True when any peer has `cell` loaded.
@@ -179,8 +204,14 @@ impl SceneModel {
 
     /// Players standing in the same home cell as `p` (not counting `p`).
     pub fn cell_mates(&self, p: PlayerId) -> Vec<PlayerId> {
-        let Some(me) = self.peers.get(&p) else { return vec![] };
-        self.peers.iter().filter(|(q, s)| **q != p && s.home == me.home).map(|(q, _)| *q).collect()
+        let Some(me) = self.peers.get(&p) else {
+            return vec![];
+        };
+        self.peers
+            .iter()
+            .filter(|(q, s)| **q != p && s.home == me.home)
+            .map(|(q, _)| *q)
+            .collect()
     }
 
     /// True when the two peers' loaded sets overlap: each is within the
@@ -203,12 +234,19 @@ impl SceneModel {
     /// Feeds ownership: players also own actors in loaded cells other than
     /// their home when nobody stands there.
     pub fn apply_ownership(&self, own: &mut Ownership) {
-        own.reach = self.peers.iter().map(|(p, s)| (*p, s.loaded.clone())).collect();
+        own.reach = self
+            .peers
+            .iter()
+            .map(|(p, s)| (*p, s.loaded.clone()))
+            .collect();
     }
 
     /// Where every peer is, for the party list and the compass: data only.
     pub fn places(&self) -> Vec<(PlayerId, CellId, [f32; 3])> {
-        self.peers.iter().map(|(p, s)| (*p, s.home, s.pos)).collect()
+        self.peers
+            .iter()
+            .map(|(p, s)| (*p, s.home, s.pos))
+            .collect()
     }
 
     /// Sets (or clears) the tether zone.
@@ -226,8 +264,11 @@ impl SceneModel {
     /// worldspace, where coordinates share one frame. Unknown players count
     /// as inside (they cannot hold the party back).
     pub fn in_zone(&self, p: PlayerId, cell: CellId, pos: [f32; 3], radius: f32) -> bool {
-        let Some(s) = self.peers.get(&p) else { return true };
-        let reachable = s.home == cell || (s.loaded.contains(&cell) && self.graph.same_space(s.home, cell));
+        let Some(s) = self.peers.get(&p) else {
+            return true;
+        };
+        let reachable =
+            s.home == cell || (s.loaded.contains(&cell) && self.graph.same_space(s.home, cell));
         reachable && dist2(s.pos, pos) <= radius
     }
 
@@ -250,7 +291,15 @@ impl SceneModel {
                 let off = if players.len() <= 1 { 0.0 } else { WARP_SPREAD };
                 (
                     *p,
-                    Placement { cell: to.cell, pos: [to.pos[0] + a.cos() * off, to.pos[1] + a.sin() * off, to.pos[2]], heading: to.heading },
+                    Placement {
+                        cell: to.cell,
+                        pos: [
+                            to.pos[0] + a.cos() * off,
+                            to.pos[1] + a.sin() * off,
+                            to.pos[2],
+                        ],
+                        heading: to.heading,
+                    },
                 )
             })
             .collect()
@@ -265,10 +314,23 @@ impl SceneModel {
     /// the story, else beside the host, else beside any member in the scene.
     pub fn join_placement(&self, joiner: PlayerId) -> Option<Placement> {
         if let Some(a) = self.anchor {
-            return Some(Placement { cell: a.cell, pos: a.pos, heading: a.heading });
+            return Some(Placement {
+                cell: a.cell,
+                pos: a.pos,
+                heading: a.heading,
+            });
         }
-        let pick = self.peers.iter().filter(|(p, _)| **p != joiner).min_by_key(|(p, _)| p.0).map(|(_, s)| s)?;
-        Some(Placement { cell: pick.home, pos: pick.pos, heading: 0.0 })
+        let pick = self
+            .peers
+            .iter()
+            .filter(|(p, _)| **p != joiner)
+            .min_by_key(|(p, _)| p.0)
+            .map(|(_, s)| s)?;
+        Some(Placement {
+            cell: pick.home,
+            pos: pick.pos,
+            heading: 0.0,
+        })
     }
 
     /// `p` follows `leader` through doors and fast travel (`None` stops).
@@ -285,7 +347,9 @@ impl SceneModel {
 
     /// Who follows `leader` and is close enough to come along.
     pub fn followers_of(&self, leader: PlayerId) -> Vec<PlayerId> {
-        let Some(l) = self.peers.get(&leader) else { return vec![] };
+        let Some(l) = self.peers.get(&leader) else {
+            return vec![];
+        };
         self.follow
             .iter()
             .filter(|(_, ld)| **ld == leader)
@@ -301,8 +365,13 @@ impl SceneModel {
     pub fn plan_transit(&self, mover: PlayerId, to: Placement) -> Transit {
         let mut who = vec![mover];
         who.extend(self.followers_of(mover));
-        let needs_vote = self.anchor.is_some_and(|a| !(to.cell == a.cell && dist2(to.pos, a.pos) <= a.radius));
-        Transit { moves: self.spread(&who, to), needs_vote }
+        let needs_vote = self
+            .anchor
+            .is_some_and(|a| !(to.cell == a.cell && dist2(to.pos, a.pos) <= a.radius));
+        Transit {
+            moves: self.spread(&who, to),
+            needs_vote,
+        }
     }
 }
 
@@ -317,7 +386,8 @@ mod tests {
         let mut m = SceneModel::new();
         for x in 0..8 {
             for y in 0..8 {
-                m.graph.register_exterior(CellId(100 + (x * 8 + y) as u32), 0x3C, x, y);
+                m.graph
+                    .register_exterior(CellId(100 + (x * 8 + y) as u32), 0x3C, x, y);
             }
         }
         m
@@ -328,8 +398,16 @@ mod tests {
         let mut m = grid();
         let d = m.update_peer(p(1), CellId(100 + 9), [0.0; 3]);
         assert!(d.moved_home && d.left.is_empty());
-        assert_eq!(d.entered.len(), 16, "neighbourhood 4x4 around (1,1) clipped at the edge");
-        assert!(m.update_peer(p(1), CellId(100 + 9), [5.0, 0.0, 0.0]).is_empty(), "same cell only moves");
+        assert_eq!(
+            d.entered.len(),
+            16,
+            "neighbourhood 4x4 around (1,1) clipped at the edge"
+        );
+        assert!(
+            m.update_peer(p(1), CellId(100 + 9), [5.0, 0.0, 0.0])
+                .is_empty(),
+            "same cell only moves"
+        );
         let d = m.update_peer(p(1), CellId(100 + 17), [0.0; 3]);
         assert_eq!(d.entered.len(), 4, "one row in");
         assert!(d.moved_home);
@@ -353,7 +431,12 @@ mod tests {
     #[test]
     fn tether_zone_spans_loaded_grid_cells_but_not_interiors() {
         let mut m = grid();
-        let anchor = ZoneAnchor { cell: CellId(100 + 27), pos: [1000.0, 0.0, 0.0], radius: 4096.0, heading: 0.0 };
+        let anchor = ZoneAnchor {
+            cell: CellId(100 + 27),
+            pos: [1000.0, 0.0, 0.0],
+            radius: 4096.0,
+            heading: 0.0,
+        };
         m.set_anchor(Some(anchor));
         m.update_peer(p(0), CellId(100 + 27), [0.0; 3]);
         m.update_peer(p(1), CellId(100 + 28), [3000.0, 0.0, 0.0]);
@@ -361,9 +444,15 @@ mod tests {
         m.update_peer(p(3), CellId(100 + 28), [90_000.0, 0.0, 0.0]);
         assert!(m.in_tether_zone(p(0)));
         assert!(m.in_tether_zone(p(1)), "next grid cell, close by");
-        assert!(!m.in_tether_zone(p(2)), "an interior is another scene however close its numbers");
+        assert!(
+            !m.in_tether_zone(p(2)),
+            "an interior is another scene however close its numbers"
+        );
         assert!(!m.in_tether_zone(p(3)), "too far");
-        assert!(m.in_tether_zone(p(9)), "unknown players do not hold the party");
+        assert!(
+            m.in_tether_zone(p(9)),
+            "unknown players do not hold the party"
+        );
     }
 
     #[test]
@@ -373,7 +462,12 @@ mod tests {
         m.update_peer(p(1), CellId(8), [0.0; 3]);
         let j = m.join_placement(p(2)).unwrap();
         assert_eq!((j.cell, j.pos), (CellId(7), [10.0, 20.0, 0.0]));
-        m.set_anchor(Some(ZoneAnchor { cell: CellId(9), pos: [1.0, 2.0, 3.0], radius: 10.0, heading: 1.0 }));
+        m.set_anchor(Some(ZoneAnchor {
+            cell: CellId(9),
+            pos: [1.0, 2.0, 3.0],
+            radius: 10.0,
+            heading: 1.0,
+        }));
         assert_eq!(m.join_placement(p(2)).unwrap().cell, CellId(9));
         assert!(SceneModel::new().join_placement(p(1)).is_none());
     }
@@ -386,13 +480,25 @@ mod tests {
         m.update_peer(p(2), CellId(7), [9000.0, 0.0, 0.0]);
         m.set_follow(p(1), Some(p(0)));
         m.set_follow(p(2), Some(p(0)));
-        let to = Placement { cell: CellId(40), pos: [0.0; 3], heading: 0.0 };
+        let to = Placement {
+            cell: CellId(40),
+            pos: [0.0; 3],
+            heading: 0.0,
+        };
         let t = m.plan_transit(p(0), to);
-        assert_eq!(t.moves.iter().map(|x| x.0).collect::<Vec<_>>(), vec![p(0), p(1)]);
+        assert_eq!(
+            t.moves.iter().map(|x| x.0).collect::<Vec<_>>(),
+            vec![p(0), p(1)]
+        );
         assert!(!t.needs_vote);
         assert!(t.moves.iter().all(|(_, pl)| pl.cell == CellId(40)));
         assert_ne!(t.moves[0].1.pos, t.moves[1].1.pos, "spread, not stacked");
-        m.set_anchor(Some(ZoneAnchor { cell: CellId(7), pos: [0.0; 3], radius: 100.0, heading: 0.0 }));
+        m.set_anchor(Some(ZoneAnchor {
+            cell: CellId(7),
+            pos: [0.0; 3],
+            radius: 100.0,
+            heading: 0.0,
+        }));
         assert!(m.plan_transit(p(0), to).needs_vote);
         m.remove_peer(p(0));
         assert!(m.followers_of(p(0)).is_empty());

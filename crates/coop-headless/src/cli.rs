@@ -16,7 +16,11 @@ pub fn run(cmd: &str, args: Vec<String>) -> i32 {
 
 fn checklist(args: Vec<String>) -> i32 {
     use crate::checklist::{report, run::run as run_all, run::Opts};
-    let mut o = Opts { seeds: Some(vec![1, 2]), jobs: std::thread::available_parallelism().map_or(4, |n| n.get().min(4)), ..Opts::default() };
+    let mut o = Opts {
+        seeds: Some(vec![1, 2]),
+        jobs: std::thread::available_parallelism().map_or(4, |n| n.get().min(4)),
+        ..Opts::default()
+    };
     let (mut md, mut json) = (None, None);
     let mut it = args.into_iter();
     while let Some(a) = it.next() {
@@ -91,7 +95,12 @@ fn questwalk(args: Vec<String>) -> i32 {
             match a.as_str() {
                 "--data" => data = Some(val("--data")?),
                 "--net" => o.nets = val("--net")?.split(',').map(str::to_string).collect(),
-                "--peers" => o.peers = val("--peers")?.split(',').filter_map(|x| x.parse().ok()).collect(),
+                "--peers" => {
+                    o.peers = val("--peers")?
+                        .split(',')
+                        .filter_map(|x| x.parse().ok())
+                        .collect()
+                }
                 "--jobs" => o.jobs = val("--jobs")?.parse().map_err(|_| "bad --jobs")?,
                 "--seed" => o.seed = val("--seed")?.parse().map_err(|_| "bad --seed")?,
                 "--only" => o.filter = Some(val("--only")?),
@@ -106,7 +115,10 @@ fn questwalk(args: Vec<String>) -> i32 {
         }
     }
     if full {
-        o.nets = crate::scenario::PROFILES.iter().map(|s| s.to_string()).collect();
+        o.nets = crate::scenario::PROFILES
+            .iter()
+            .map(|s| s.to_string())
+            .collect();
         o.peers = vec![2, 3, 4];
     }
     let d = match Data::locate(data.as_deref()).and_then(|d| Data::open(&d)) {
@@ -139,7 +151,17 @@ fn questwalk(args: Vec<String>) -> i32 {
             e.3 += 1
         }
         if r.status == QStatus::Fail {
-            println!("FAIL {} ({}): {}", r.edid, r.plugin, r.fails.iter().take(3).cloned().collect::<Vec<_>>().join(" | "));
+            println!(
+                "FAIL {} ({}): {}",
+                r.edid,
+                r.plugin,
+                r.fails
+                    .iter()
+                    .take(3)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(" | ")
+            );
         }
     }
     for (k, (p, f, po, sp)) in &by {
@@ -155,18 +177,41 @@ fn questwalk(args: Vec<String>) -> i32 {
         t[4] += r.per_player;
         gaps.extend(r.sp_gaps.keys().cloned());
     }
-    println!("stages {} applied {} released {} refused {} per-player {}; SP-gap functions {}", t[0], t[1], t[2], t[3], t[4], gaps.len());
+    println!(
+        "stages {} applied {} released {} refused {} per-player {}; SP-gap functions {}",
+        t[0],
+        t[1],
+        t[2],
+        t[3],
+        t[4],
+        gaps.len()
+    );
     if let Ok(d) = crate::questwalk::resolved_hits(&d) {
-        println!("policy rows whose (plugin, local id) resolves to the quest's runtime id: {} of {}", d.0, d.1);
+        println!(
+            "policy rows whose (plugin, local id) resolves to the quest's runtime id: {} of {}",
+            d.0, d.1
+        );
     }
     if o.filter.is_some() {
         for r in &res {
-            println!("{} stages {} applied {} released {} refused {} gaps {:?}", r.edid, r.stages, r.applied, r.released, r.refused, r.sp_gaps.keys().collect::<Vec<_>>());
+            println!(
+                "{} stages {} applied {} released {} refused {} gaps {:?}",
+                r.edid,
+                r.stages,
+                r.applied,
+                r.released,
+                r.refused,
+                r.sp_gaps.keys().collect::<Vec<_>>()
+            );
         }
     }
     println!("not in load order: {}", missing.len());
     let bad: u32 = by.values().map(|v| v.1).sum();
-    println!("questwalk: {} quests in {:.1} s", res.len(), t0.elapsed().as_secs_f64());
+    println!(
+        "questwalk: {} quests in {:.1} s",
+        res.len(),
+        t0.elapsed().as_secs_f64()
+    );
     println!("RESULT: {}", if bad == 0 { "PASS" } else { "FAIL" });
     i32::from(bad > 0)
 }

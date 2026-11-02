@@ -708,7 +708,11 @@ pub fn doors(
                 &mut lockpicking.request,
             ) {
                 // co-op: a guest asks; the swing arrives as a shared fact
-                if state.0.coop_route(world::coop::interact::door_act(reference)) == world::coop::interact::Route::Remote {
+                if state
+                    .0
+                    .coop_route(world::coop::interact::door_act(reference))
+                    == world::coop::interact::Route::Remote
+                {
                     return;
                 }
                 let player = world::dialogue::PLAYER_REF;
@@ -755,7 +759,11 @@ pub fn doors(
     // rest stay in the leader's cell group); a guest waits for the answer
     {
         let from = state.0.player_cell.map_or(0, |c| c.0);
-        if state.0.coop_route(world::coop::interact::enter_act(reference, from, cell)) == world::coop::interact::Route::Remote {
+        if state
+            .0
+            .coop_route(world::coop::interact::enter_act(reference, from, cell))
+            == world::coop::interact::Route::Remote
+        {
             return;
         }
     }

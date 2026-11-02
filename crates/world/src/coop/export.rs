@@ -94,13 +94,25 @@ pub fn is_tombstone(f: &Field) -> bool {
 pub fn tombstone_of(f: &Field) -> Field {
     match f {
         Field::QuestFlags { .. } => Field::QuestFlags { flags: 0 },
-        Field::Objective { index, .. } => Field::Objective { index: *index, state: 0 },
+        Field::Objective { index, .. } => Field::Objective {
+            index: *index,
+            state: 0,
+        },
         Field::Topic { .. } => Field::Topic { known: false },
-        Field::ItemCount { item, .. } => Field::ItemCount { item: *item, count: 0 },
-        Field::ScriptVar { index, .. } => Field::ScriptVar { index: *index, bits: 0 },
+        Field::ItemCount { item, .. } => Field::ItemCount {
+            item: *item,
+            count: 0,
+        },
+        Field::ScriptVar { index, .. } => Field::ScriptVar {
+            index: *index,
+            bits: 0,
+        },
         Field::Karma { .. } => Field::Karma { value: 0 },
         Field::ActorValue { av, .. } => Field::ActorValue { av: *av, value: 0 },
-        Field::Custom { tag, .. } => Field::Custom { tag: *tag, data: Vec::new() },
+        Field::Custom { tag, .. } => Field::Custom {
+            tag: *tag,
+            data: Vec::new(),
+        },
         other => other.clone(),
     }
 }
@@ -148,14 +160,17 @@ pub fn export(gs: &GameState) -> Fields {
     let plan = gs.coop.bank.plan.as_ref();
     let own = |q: &FormId| plan.is_some_and(|p| p.quests.contains(q));
     let shadowed_var = |owner: &FormId, name: &str| {
-        plan.and_then(|p| p.quest_vars.get(owner)).is_some_and(|v| v.iter().any(|n| n == name))
+        plan.and_then(|p| p.quest_vars.get(owner))
+            .is_some_and(|v| v.iter().any(|n| n == name))
     };
     for (q, s) in gs.stages.iter().filter(|(q, _)| !own(q)) {
         put(*q, Field::QuestStage { stage: *s });
     }
     let mut done: BTreeMap<(FormId, u16), Vec<u16>> = BTreeMap::new();
     for (q, s) in gs.stages_done.iter().filter(|(q, _)| !own(q)) {
-        done.entry((*q, *s / tag::STAGES_CHUNK)).or_default().push(*s);
+        done.entry((*q, *s / tag::STAGES_CHUNK))
+            .or_default()
+            .push(*s);
     }
     for ((q, chunk), mut stages) in done {
         stages.sort_unstable();
@@ -182,16 +197,33 @@ pub fn export(gs: &GameState) -> Fields {
     }
     for ((q, i), done) in gs.objectives.iter().filter(|((q, _), _)| !own(q)) {
         if let Ok(index) = u16::try_from(*i) {
-            put(*q, Field::Objective { index, state: if *done { 3 } else { 1 } });
+            put(
+                *q,
+                Field::Objective {
+                    index,
+                    state: if *done { 3 } else { 1 },
+                },
+            );
         }
     }
-    for (q, i) in gs.set_by_scripts.hidden_completed.iter().filter(|(q, _)| !own(q)) {
+    for (q, i) in gs
+        .set_by_scripts
+        .hidden_completed
+        .iter()
+        .filter(|(q, _)| !own(q))
+    {
         if let Ok(index) = u16::try_from(*i) {
             put(*q, Field::Objective { index, state: 2 });
         }
     }
     for (g, v) in &gs.globals {
-        let v = gs.coop_clock_exported(*g, *v).unwrap_or_else(|| if gs.coop.clock.contains(g) { quantize_clock(*v) } else { *v });
+        let v = gs.coop_clock_exported(*g, *v).unwrap_or_else(|| {
+            if gs.coop.clock.contains(g) {
+                quantize_clock(*v)
+            } else {
+                *v
+            }
+        });
         put(*g, Field::global(v));
     }
     for t in &gs.topics {
@@ -205,18 +237,35 @@ pub fn export(gs: &GameState) -> Fields {
         (&gs.stocked, tag::STOCKED),
         (&gs.map_markers, tag::MARKER),
     ] {
-        for f in set.iter().filter(|f| !(t == tag::STOCKED && plan.is_some() && **f == PLAYER_REF)) {
+        for f in set
+            .iter()
+            .filter(|f| !(t == tag::STOCKED && plan.is_some() && **f == PLAYER_REF))
+        {
             put(*f, custom(t, vec![1]));
         }
     }
-    for f in gs.dead.iter().filter(|f| **f != PLAYER_REF && super::facts::player_of(**f).is_none()) {
+    for f in gs
+        .dead
+        .iter()
+        .filter(|f| **f != PLAYER_REF && super::facts::player_of(**f).is_none())
+    {
         put(*f, custom(tag::DEAD, vec![1]));
     }
     for (r, d) in &gs.disabled {
         put(*r, Field::RefDisabled { disabled: *d });
     }
-    for ((holder, item), n) in gs.items.iter().filter(|((h, _), _)| !(plan.is_some() && *h == PLAYER_REF)) {
-        put(*holder, Field::ItemCount { item: cf(*item), count: *n });
+    for ((holder, item), n) in gs
+        .items
+        .iter()
+        .filter(|((h, _), _)| !(plan.is_some() && *h == PLAYER_REF))
+    {
+        put(
+            *holder,
+            Field::ItemCount {
+                item: cf(*item),
+                count: *n,
+            },
+        );
     }
     for (owner, locals) in &gs.variables {
         for (i, (name, _, v)) in locals.iter().enumerate() {
@@ -228,15 +277,31 @@ pub fn export(gs: &GameState) -> Fields {
             }
         }
     }
-    let av = |id: u16| gs.actor_values.get(&(PLAYER_REF, id)).copied().unwrap_or(0.0);
-    put(PLAYER_REF, Field::Karma { value: av(crate::reputation::KARMA) as i32 });
+    let av = |id: u16| {
+        gs.actor_values
+            .get(&(PLAYER_REF, id))
+            .copied()
+            .unwrap_or(0.0)
+    };
+    put(
+        PLAYER_REF,
+        Field::Karma {
+            value: av(crate::reputation::KARMA) as i32,
+        },
+    );
     let (xp_own, perks_own) = plan.map_or((false, false), |p| (p.level_xp, p.perks));
     if !xp_own {
         put(
             PLAYER_REF,
-            Field::ActorValue { av: crate::experience::XP, value: av(crate::experience::XP) as i32 },
+            Field::ActorValue {
+                av: crate::experience::XP,
+                value: av(crate::experience::XP) as i32,
+            },
         );
-        put(PLAYER_REF, custom(tag::LEVEL, gs.player_level.to_le_bytes().to_vec()));
+        put(
+            PLAYER_REF,
+            custom(tag::LEVEL, gs.player_level.to_le_bytes().to_vec()),
+        );
     }
     for p in gs.perks.iter().filter(|_| !perks_own) {
         let rank = gs.perk_ranks.get(p).copied().unwrap_or(1);

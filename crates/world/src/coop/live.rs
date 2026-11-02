@@ -57,7 +57,9 @@ pub fn space_of_player(gs: &GameState) -> u32 {
 /// The local player's avatar sample from `GameState`.
 pub fn avatar_of(gs: &GameState, cx: Ctx) -> AvatarState {
     let p = gs.player_position.unwrap_or([0.0; 3]);
-    let health = crate::combat::health(cx.order, gs, PLAYER_REF).unwrap_or(0.0).clamp(0.0, 65535.0);
+    let health = crate::combat::health(cx.order, gs, PLAYER_REF)
+        .unwrap_or(0.0)
+        .clamp(0.0, 65535.0);
     let mut flags = gs.coop.live.local_flags & !(FLAG_DOWNED | FLAG_DEAD);
     if gs.coop.live.downed {
         flags |= FLAG_DOWNED;
@@ -79,13 +81,18 @@ pub fn avatar_of(gs: &GameState, cx: Ctx) -> AvatarState {
 
 /// What the owner publishes about an actor.
 pub fn export_actor(gs: &GameState, cx: Ctx, a: FormId) -> ActorState {
-    let (cell, pos, heading) = gs.place(cx.order, a).map_or((0, [0.0; 3], 0.0), |p| (p.0 .0, p.2, p.3));
+    let (cell, pos, heading) = gs
+        .place(cx.order, a)
+        .map_or((0, [0.0; 3], 0.0), |p| (p.0 .0, p.2, p.3));
     ActorState {
         cell: CellId(cell),
         pos: [quant_pos(pos[0]), quant_pos(pos[1]), quant_pos(pos[2])],
         heading: quant_heading(heading),
         anim: gs.coop.live.anim.get(&a).copied().unwrap_or(0),
-        health: crate::combat::health(cx.order, gs, a).unwrap_or(0.0).clamp(0.0, 65535.0).round() as u16,
+        health: crate::combat::health(cx.order, gs, a)
+            .unwrap_or(0.0)
+            .clamp(0.0, 65535.0)
+            .round() as u16,
         target: gs.combat.get(&a).map_or(0, |t| t.0),
         flags: u16::from(gs.dead.contains(&a)),
     }
@@ -117,11 +124,14 @@ fn replay_death(cx: Ctx, gs: &mut GameState, who: FormId) {
     if gs.dead.contains(&who) {
         return;
     }
-    let left = crate::combat::health(cx.order, gs, who).unwrap_or(1.0).max(1.0);
+    let left = crate::combat::health(cx.order, gs, who)
+        .unwrap_or(1.0)
+        .max(1.0);
     replay(cx, gs, who, left, FormId(0));
     if gs.dead.insert(who) {
         gs.combat.remove(&who);
-        gs.events.push(crate::scripting::Event::Died { who, by: FormId(0) });
+        gs.events
+            .push(crate::scripting::Event::Died { who, by: FormId(0) });
     }
 }
 
@@ -135,12 +145,22 @@ pub struct ActorPump {
 
 impl ActorPump {
     /// Owned actors' states at the fixed rate.
-    pub fn publish(&mut self, cx: Ctx, gs: &GameState, client: &mut ActorClient, now_ms: u64) -> Vec<ActorMsg> {
+    pub fn publish(
+        &mut self,
+        cx: Ctx,
+        gs: &GameState,
+        client: &mut ActorClient,
+        now_ms: u64,
+    ) -> Vec<ActorMsg> {
         if now_ms < self.next_ms {
             return vec![];
         }
         self.next_ms = now_ms + PUBLISH_MS;
-        client.owned().into_iter().filter_map(|a| client.publish(a, export_actor(gs, cx, wf(a)))).collect()
+        client
+            .owned()
+            .into_iter()
+            .filter_map(|a| client.publish(a, export_actor(gs, cx, wf(a))))
+            .collect()
     }
 
     /// Writes other owners' states into the world, and every actor's damage
@@ -151,7 +171,11 @@ impl ActorPump {
             if let Some(st) = rec.state {
                 // dormant actors (nobody shares their place) keep running here
                 if rec.owner.is_some() && rec.owner != Some(me) {
-                    let pos = [dequant_pos(st.pos[0]), dequant_pos(st.pos[1]), dequant_pos(st.pos[2])];
+                    let pos = [
+                        dequant_pos(st.pos[0]),
+                        dequant_pos(st.pos[1]),
+                        dequant_pos(st.pos[2]),
+                    ];
                     gs.positions.insert(a, (pos, dequant_heading(st.heading)));
                     gs.coop.live.remote_anim.insert(a, st.anim);
                     match st.target {
@@ -264,7 +288,13 @@ impl LiveHostAdapter {
     /// Actors a guest reported are protected like the host's own when they
     /// are essential; every tracked actor is known here once.
     fn adopt_reported(&mut self, cx: Ctx, gs: &GameState, live: &mut HostLive) {
-        let new: Vec<CForm> = live.actors.own.iter().map(|(id, _)| *id).filter(|id| !self.tracked.contains(&wf(*id))).collect();
+        let new: Vec<CForm> = live
+            .actors
+            .own
+            .iter()
+            .map(|(id, _)| *id)
+            .filter(|id| !self.tracked.contains(&wf(*id)))
+            .collect();
         for id in new {
             self.tracked.insert(wf(id));
             let essential = crate::more_functions::is_essential(cx.order, gs, wf(id));
@@ -306,7 +336,13 @@ impl LiveHostAdapter {
     }
 
     /// Feeds one message from the host player's own game.
-    pub fn on_local(&mut self, live: &mut HostLive, auth: &mut AuthorityTable, now_ms: u64, msg: Msg) -> Outs {
+    pub fn on_local(
+        &mut self,
+        live: &mut HostLive,
+        auth: &mut AuthorityTable,
+        now_ms: u64,
+        msg: Msg,
+    ) -> Outs {
         live.on_msg(PlayerId::HOST, msg, now_ms, auth)
     }
 
@@ -365,11 +401,25 @@ impl LiveHostAdapter {
         for m in self.rules.local_frame(cx, gs, &mut self.own.rules) {
             outs.extend(live.on_msg(PlayerId::HOST, m, now_ms, auth));
         }
-        for m in self.scene.local_frame(cx, gs, &mut self.own.scene, true, now_ms) {
+        for m in self
+            .scene
+            .local_frame(cx, gs, &mut self.own.scene, true, now_ms)
+        {
             outs.extend(live.on_msg(PlayerId::HOST, m, now_ms, auth));
         }
-        outs.extend(self.interact.frame(cx, gs, live, &mut self.own, &self.rules.events, now_ms));
-        outs.extend(self.combat.host_frame(cx, gs, live, &mut self.own, auth, &self.rules.events, now_ms));
+        outs.extend(
+            self.interact
+                .frame(cx, gs, live, &mut self.own, &self.rules.events, now_ms),
+        );
+        outs.extend(self.combat.host_frame(
+            cx,
+            gs,
+            live,
+            &mut self.own,
+            auth,
+            &self.rules.events,
+            now_ms,
+        ));
         outs
     }
 }
@@ -425,7 +475,10 @@ impl LiveGuestAdapter {
     /// too, so a creature found where only this guest has loaded is shared.
     pub fn track(&mut self, cx: Ctx, gs: &GameState, actors: &[FormId]) {
         for &a in actors {
-            if puppet_of(self.me) == a || super::facts::player_of(a).is_some() || gs.place(cx.order, a).is_none() {
+            if puppet_of(self.me) == a
+                || super::facts::player_of(a).is_some()
+                || gs.place(cx.order, a).is_none()
+            {
                 continue;
             }
             if self.tracked.insert(a) {
@@ -438,23 +491,38 @@ impl LiveGuestAdapter {
     /// it shows any made reference), and drops those the host removed.
     fn realize_spawned(&mut self, gs: &mut GameState, live: &GuestLive) {
         for (id, (cell, pos)) in &live.actors.spawn_at {
-            let Some(base) = live.actors.spawned.get(id) else { continue };
+            let Some(base) = live.actors.spawned.get(id) else {
+                continue;
+            };
             let r = wf(*id);
             if !self.realized.insert(r) {
                 continue;
             }
             let at = FormId(cell.0);
-            let position = [dequant_pos(pos[0]), dequant_pos(pos[1]), dequant_pos(pos[2])];
-            gs.more.placed.refs.entry(r).or_insert(crate::more_functions::placed::Made {
-                base: wf(*base),
-                space: at,
-                cell: at,
-                position,
-                rotation: [0.0; 3],
-                count: 1,
-            });
+            let position = [
+                dequant_pos(pos[0]),
+                dequant_pos(pos[1]),
+                dequant_pos(pos[2]),
+            ];
+            gs.more
+                .placed
+                .refs
+                .entry(r)
+                .or_insert(crate::more_functions::placed::Made {
+                    base: wf(*base),
+                    space: at,
+                    cell: at,
+                    position,
+                    rotation: [0.0; 3],
+                    count: 1,
+                });
         }
-        let gone: Vec<FormId> = self.realized.iter().copied().filter(|r| !live.actors.spawn_at.contains_key(&cf(*r))).collect();
+        let gone: Vec<FormId> = self
+            .realized
+            .iter()
+            .copied()
+            .filter(|r| !live.actors.spawn_at.contains_key(&cf(*r)))
+            .collect();
         for r in gone {
             self.realized.remove(&r);
             gs.more.placed.refs.remove(&r);
@@ -463,7 +531,13 @@ impl LiveGuestAdapter {
     }
 
     /// The per-frame driver. Send the returned messages to the host.
-    pub fn frame(&mut self, cx: Ctx, gs: &mut GameState, live: &mut GuestLive, now_ms: u64) -> Vec<Msg> {
+    pub fn frame(
+        &mut self,
+        cx: Ctx,
+        gs: &mut GameState,
+        live: &mut GuestLive,
+        now_ms: u64,
+    ) -> Vec<Msg> {
         let mut out = Vec::new();
         if gs.coop.authority != Authority::Guest {
             return out;
@@ -490,12 +564,20 @@ impl LiveGuestAdapter {
             self.stats.hits_sent += 1;
             out.push(Msg::Actor(live.actors.hit(cf(who), hit_points(amount))));
         }
-        out.extend(self.pump.publish(cx, gs, &mut live.actors, now_ms).into_iter().map(Msg::Actor));
+        out.extend(
+            self.pump
+                .publish(cx, gs, &mut live.actors, now_ms)
+                .into_iter()
+                .map(Msg::Actor),
+        );
         self.pump.apply(cx, gs, &live.actors, self.me);
         self.dialogue.poll_lines(gs, &live.dialogue);
         self.loot.apply(gs, &live.loot);
         out.extend(self.rules.local_frame(cx, gs, &mut live.rules));
-        out.extend(self.scene.local_frame(cx, gs, &mut live.scene, false, now_ms));
+        out.extend(
+            self.scene
+                .local_frame(cx, gs, &mut live.scene, false, now_ms),
+        );
         out.extend(self.interact.frame(cx, gs, live));
         out.extend(self.combat.guest_frame(cx, gs, live, self.me, now_ms));
         out

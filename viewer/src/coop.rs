@@ -20,7 +20,10 @@ use std::time::{Duration, Instant};
 
 use bevy::prelude::*;
 use coop_session::json::{self, V};
-use coop_session::{ChaosProfile, Command, Event as CoopEvent, Opening, OwnCharacter, Role, Session, SessionConfig, StartConfig};
+use coop_session::{
+    ChaosProfile, Command, Event as CoopEvent, Opening, OwnCharacter, Role, Session, SessionConfig,
+    StartConfig,
+};
 use world::coop::apply::{Ctx, Opts};
 
 use crate::args::{Args, Stance};
@@ -108,7 +111,9 @@ pub fn stash(started: Option<Started>) {
 }
 
 fn fnv(bytes: impl IntoIterator<Item = u8>) -> u64 {
-    bytes.into_iter().fold(0xcbf2_9ce4_8422_2325, |h, b| (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3))
+    bytes.into_iter().fold(0xcbf2_9ce4_8422_2325, |h, b| {
+        (h ^ b as u64).wrapping_mul(0x0000_0100_0000_01b3)
+    })
 }
 
 /// A line in the log for a session that never started, so a harness sees
@@ -119,14 +124,35 @@ fn failure_log(path: Option<&Path>, role: &str, msg: &str) {
     if let Some(dir) = path.parent().filter(|d| !d.as_os_str().is_empty()) {
         let _ = std::fs::create_dir_all(dir);
     }
-    let Ok(mut f) = std::fs::File::create(path) else { return };
+    let Ok(mut f) = std::fs::File::create(path) else {
+        return;
+    };
     let pid = std::process::id() as u64;
-    let _ = writeln!(f, "{}", json::object(&[("t", V::F(0.0)), ("ev", V::S("start")), ("role", V::S(role)), ("pid", V::U(pid))]));
-    let _ = writeln!(f, "{}", json::object(&[("t", V::F(0.0)), ("ev", V::S("error")), ("msg", V::S(msg))]));
     let _ = writeln!(
         f,
         "{}",
-        json::object(&[("t", V::F(0.0)), ("ev", V::S("shutdown")), ("reason", V::S("error")), ("clean", V::B(false)), ("code", V::I(1))])
+        json::object(&[
+            ("t", V::F(0.0)),
+            ("ev", V::S("start")),
+            ("role", V::S(role)),
+            ("pid", V::U(pid))
+        ])
+    );
+    let _ = writeln!(
+        f,
+        "{}",
+        json::object(&[("t", V::F(0.0)), ("ev", V::S("error")), ("msg", V::S(msg))])
+    );
+    let _ = writeln!(
+        f,
+        "{}",
+        json::object(&[
+            ("t", V::F(0.0)),
+            ("ev", V::S("shutdown")),
+            ("reason", V::S("error")),
+            ("clean", V::B(false)),
+            ("code", V::I(1))
+        ])
     );
 }
 
@@ -140,11 +166,21 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
         return Ok(None);
     }
     crate::coop_live::configure(&c);
-    let role = if c.host.is_some() { Role::Host } else { Role::Guest };
+    let role = if c.host.is_some() {
+        Role::Host
+    } else {
+        Role::Guest
+    };
     let role_name = if role == Role::Host { "host" } else { "guest" };
     let pid = std::process::id();
     let mut cfg = SessionConfig {
-        name: c.name.clone().unwrap_or_else(|| if role == Role::Host { "Host".into() } else { format!("Guest {}", pid % 1000) }),
+        name: c.name.clone().unwrap_or_else(|| {
+            if role == Role::Host {
+                "Host".into()
+            } else {
+                format!("Guest {}", pid % 1000)
+            }
+        }),
         addr: match (&c.host, &c.join) {
             (Some(port), _) => port.to_string(),
             (_, Some(a)) => a.clone(),
@@ -153,8 +189,18 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
         live: true,
         native_dialogue: true,
         build_hash: fnv(env!("CARGO_PKG_VERSION").bytes()),
-        mods_hash: fnv(order.plugins().iter().flat_map(|p| p.name.to_ascii_lowercase().into_bytes().into_iter().chain([0]))),
-        chaos: c.net.as_deref().and_then(ChaosProfile::by_name).map(|p| (p, 0x5EED ^ pid as u64)),
+        mods_hash: fnv(order.plugins().iter().flat_map(|p| {
+            p.name
+                .to_ascii_lowercase()
+                .into_bytes()
+                .into_iter()
+                .chain([0])
+        })),
+        chaos: c
+            .net
+            .as_deref()
+            .and_then(ChaosProfile::by_name)
+            .map(|p| (p, 0x5EED ^ pid as u64)),
         compat: coop_session::CompatConfig {
             exe: crate::coop_live::EXE_VERSION.into(),
             volatile_hash: coop_session::compat::volatile_hash(coop_session::compat::VOLATILE_KEYS),
@@ -187,7 +233,10 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
     } else {
         OwnCharacter::Create
     };
-    session.set_start_config(StartConfig { new_game: c.new_game, own });
+    session.set_start_config(StartConfig {
+        new_game: c.new_game,
+        own,
+    });
     if let Some(path) = c.own_load.as_deref().filter(|_| role == Role::Guest) {
         match own_sheet(order, path) {
             Ok(sheet) => session.set_own_sheet(sheet),
@@ -197,7 +246,13 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
             }
         }
     }
-    let who = c.name.clone().unwrap_or_else(|| if role == Role::Host { "Host".into() } else { "Guest".into() });
+    let who = c.name.clone().unwrap_or_else(|| {
+        if role == Role::Host {
+            "Host".into()
+        } else {
+            "Guest".into()
+        }
+    });
     if let Err(e) = crate::coop_party::setup(&mut session, role, &c, &who) {
         failure_log(c.log.as_deref(), role_name, &e);
         return Err(e);
@@ -211,31 +266,64 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
                 break p;
             }
             if let Some(why) = session.last_error().map(str::to_string) {
-                session.log_event("shutdown", &[("reason", V::S("error")), ("clean", V::B(false)), ("code", V::I(1))]);
+                session.log_event(
+                    "shutdown",
+                    &[
+                        ("reason", V::S("error")),
+                        ("clean", V::B(false)),
+                        ("code", V::I(1)),
+                    ],
+                );
                 return Err(why);
             }
             if c.quit_file.as_deref().is_some_and(Path::exists) {
-                session.log_event("shutdown", &[("reason", V::S("quit-file")), ("clean", V::B(true)), ("code", V::I(0))]);
+                session.log_event(
+                    "shutdown",
+                    &[
+                        ("reason", V::S("quit-file")),
+                        ("clean", V::B(true)),
+                        ("code", V::I(0)),
+                    ],
+                );
                 std::process::exit(0);
             }
             if begun.elapsed() > JOIN_WAIT {
                 session.log_event("error", &[("msg", V::S("no answer from the host"))]);
-                session.log_event("shutdown", &[("reason", V::S("error")), ("clean", V::B(false)), ("code", V::I(1))]);
+                session.log_event(
+                    "shutdown",
+                    &[
+                        ("reason", V::S("error")),
+                        ("clean", V::B(false)),
+                        ("code", V::I(1)),
+                    ],
+                );
                 return Err("the host did not answer".into());
             }
             std::thread::sleep(Duration::from_millis(16));
         };
         // The host's opening is over and this guest makes its character: it does so in a local
         // room and is let go to the host's place afterwards (`start_follow_ok`).
-        let local_room = own == OwnCharacter::Create && session.host_opening() == Some(Opening::Over);
+        let local_room =
+            own == OwnCharacter::Create && session.host_opening() == Some(Opening::Over);
         if args.cell == crate::args::COOP_PLACE {
-            args.cell = if local_room { coop_session::start::LOCAL_ROOM.to_string() } else { place.query() };
+            args.cell = if local_room {
+                coop_session::start::LOCAL_ROOM.to_string()
+            } else {
+                place.query()
+            };
         }
         if args.at.is_none() && !local_room {
-            args.at = place.pos.filter(|_| place.outdoors()).map(|p| Stance { feet: p, heading: 0.0, pitch: 0.0 });
+            args.at = place.pos.filter(|_| place.outdoors()).map(|p| Stance {
+                feet: p,
+                heading: 0.0,
+                pitch: 0.0,
+            });
         }
         if local_room {
-            println!("Co-op: joined; the host's opening is over, making your character in {} first.", args.cell);
+            println!(
+                "Co-op: joined; the host's opening is over, making your character in {} first.",
+                args.cell
+            );
         } else {
             println!("Co-op: joined; loading the host's place {}.", args.cell);
         }
@@ -265,17 +353,27 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
         loaded_logged: false,
         done: false,
     };
-    Ok(Some(Started { control: c.control, link: CoopLink(session), held, run }))
+    Ok(Some(Started {
+        control: c.control,
+        link: CoopLink(session),
+        held,
+        run,
+    }))
 }
 
 /// A guest's own character from a save (`--load-fos FILE` or `--coop-load FILE`): the name, SPECIAL,
 /// tags and perks. Nothing else of the save is used.
 fn own_sheet(order: &esm::LoadOrder, path: &Path) -> Result<coop_session::Sheet, String> {
-    let state = if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("fos")) {
-        let bytes = std::fs::read(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
+    let state = if path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("fos"))
+    {
+        let bytes =
+            std::fs::read(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
         world::fos_import::import(order, &bytes)?.state
     } else {
-        let text = std::fs::read_to_string(path).map_err(|e| format!("can't read {}: {e}", path.display()))?;
+        let text = std::fs::read_to_string(path)
+            .map_err(|e| format!("can't read {}: {e}", path.display()))?;
         world::save::load(&text)?.0
     };
     Ok(coop_session::Sheet::read(&state))
@@ -283,7 +381,11 @@ fn own_sheet(order: &esm::LoadOrder, path: &Path) -> Result<coop_session::Sheet,
 
 /// A guest's own character making (`coop_session::start`): the session says which menu is next, the
 /// game's own menu opens for this player only, and its closing is what moves the flow on.
-fn start_menus(link: NonSendMut<CoopLink>, state: Res<DialogueState>, mut menus: ResMut<crate::menus::Menus>) {
+fn start_menus(
+    link: NonSendMut<CoopLink>,
+    state: Res<DialogueState>,
+    mut menus: ResMut<crate::menus::Menus>,
+) {
     use coop_session::Step;
     use world::chargen::CharacterMenu as M;
     if link.0.role() != Role::Guest || state.0.player_cell.is_none() {
@@ -295,9 +397,16 @@ fn start_menus(link: NonSendMut<CoopLink>, state: Res<DialogueState>, mut menus:
     if let Some(step) = link.0.start_poll(&state.0, busy) {
         let m = match step {
             Step::Name => M::Name,
-            Step::Special => M::Special { points: coop_session::start::SPECIAL_POINTS },
-            Step::TagSkills => M::TagSkills { count: coop_session::start::TAG_COUNT, preselect: true },
-            Step::Traits => M::Traits { max: coop_session::start::TRAIT_MAX },
+            Step::Special => M::Special {
+                points: coop_session::start::SPECIAL_POINTS,
+            },
+            Step::TagSkills => M::TagSkills {
+                count: coop_session::start::TAG_COUNT,
+                preselect: true,
+            },
+            Step::Traits => M::Traits {
+                max: coop_session::start::TRAIT_MAX,
+            },
         };
         println!("Co-op: your character, {} menu.", step.name());
         menus.push(crate::menus::Menu::Character(m));
@@ -309,7 +418,9 @@ pub struct CoopPlugin;
 
 impl Plugin for CoopPlugin {
     fn build(&self, app: &mut App) {
-        let Some(started) = STASH.with(|s| s.borrow_mut().take()) else { return };
+        let Some(started) = STASH.with(|s| s.borrow_mut().take()) else {
+            return;
+        };
         let role = started.run.role;
         app.insert_non_send_resource(started.link)
             .insert_resource(started.held)
@@ -333,7 +444,10 @@ pub(crate) struct CoopText;
 fn setup_text(mut commands: Commands) {
     commands.spawn((
         Text::new(String::new()),
-        TextFont { font_size: 11.0, ..default() },
+        TextFont {
+            font_size: 11.0,
+            ..default()
+        },
         TextColor(Color::srgba(0.7, 0.95, 0.7, 0.8)),
         Node {
             position_type: PositionType::Absolute,
@@ -355,8 +469,17 @@ fn receive(
     game: Res<GameFiles>,
     scripts: Res<Scripts>,
 ) {
-    let ctx = Ctx { order: &game.0.order, scripts: &scripts.0 };
-    link.0.pre_frame_with(&mut state.0, Opts { present: true, ctx: Some(ctx) });
+    let ctx = Ctx {
+        order: &game.0.order,
+        scripts: &scripts.0,
+    };
+    link.0.pre_frame_with(
+        &mut state.0,
+        Opts {
+            present: true,
+            ctx: Some(ctx),
+        },
+    );
 }
 
 fn log_script(s: &mut Session, line: &str) {
@@ -376,7 +499,14 @@ impl Run {
 }
 
 /// The state dump text (the next sequence number), as `--coop-state-dump` writes it.
-pub(crate) fn dump_text(s: &Session, run: &mut Run, state: &world::scripting::GameState, game: &GameFiles, now: f32, live: &LiveNow) -> String {
+pub(crate) fn dump_text(
+    s: &Session,
+    run: &mut Run,
+    state: &world::scripting::GameState,
+    game: &GameFiles,
+    now: f32,
+    live: &LiveNow,
+) -> String {
     run.seq += 1;
     let root = Session::state_root(state);
     let mut counters = live.counters.clone();
@@ -393,19 +523,49 @@ pub(crate) fn dump_text(s: &Session, run: &mut Run, state: &world::scripting::Ga
     )
 }
 
-fn write_dump(s: &mut Session, run: &mut Run, state: &world::scripting::GameState, game: &GameFiles, now: f32, live: &LiveNow) {
-    let Some(path) = run.state_dump.clone() else { return };
+fn write_dump(
+    s: &mut Session,
+    run: &mut Run,
+    state: &world::scripting::GameState,
+    game: &GameFiles,
+    now: f32,
+    live: &LiveNow,
+) {
+    let Some(path) = run.state_dump.clone() else {
+        return;
+    };
     let text = dump_text(s, run, state, game, now, live);
     coop_session::out::write_atomic(&path, &text);
-    s.log_event("state_dump", &[("path", V::S(&path.display().to_string())), ("seq", V::U(run.seq))]);
+    s.log_event(
+        "state_dump",
+        &[
+            ("path", V::S(&path.display().to_string())),
+            ("seq", V::U(run.seq)),
+        ],
+    );
 }
 
-fn finish(s: &mut Session, run: &mut Run, state: &world::scripting::GameState, game: &GameFiles, now: f32, reason: &str, live: &LiveNow) {
+fn finish(
+    s: &mut Session,
+    run: &mut Run,
+    state: &world::scripting::GameState,
+    game: &GameFiles,
+    now: f32,
+    reason: &str,
+    live: &LiveNow,
+) {
     if run.done {
         return;
     }
     write_dump(s, run, state, game, now, live);
-    s.log_event("shutdown", &[("reason", V::S(reason)), ("clean", V::B(true)), ("code", V::I(0))]);
+    s.log_event(
+        "shutdown",
+        &[
+            ("reason", V::S(reason)),
+            ("clean", V::B(true)),
+            ("code", V::I(0)),
+        ],
+    );
     run.done = true;
 }
 
@@ -418,7 +578,11 @@ pub(crate) fn send(
     game: Res<GameFiles>,
     mut held: ResMut<Held>,
     mut run: ResMut<Run>,
-    (mut start_stage, mut start_commands, mut later): (ResMut<StartStage>, ResMut<StartCommands>, ResMut<LaterCommands>),
+    (mut start_stage, mut start_commands, mut later): (
+        ResMut<StartStage>,
+        ResMut<StartCommands>,
+        ResMut<LaterCommands>,
+    ),
     (mut messages, mut notices): (ResMut<HudMessages>, ResMut<Notices>),
     mut exit: EventWriter<AppExit>,
     mut texts: Query<(&mut Text, &mut Visibility), With<CoopText>>,
@@ -478,7 +642,9 @@ pub(crate) fn send(
     }
     // A guest's timed lines, from when the session became ready.
     if let (Role::Guest, Some(t0)) = (run.role, held.released) {
-        let (due, later_lines): (Vec<_>, Vec<_>) = std::mem::take(&mut held.run_at).into_iter().partition(|(at, _)| now - t0 >= *at);
+        let (due, later_lines): (Vec<_>, Vec<_>) = std::mem::take(&mut held.run_at)
+            .into_iter()
+            .partition(|(at, _)| now - t0 >= *at);
         held.run_at = later_lines;
         for (_, l) in due {
             log_script(s, &l);
@@ -488,7 +654,10 @@ pub(crate) fn send(
     // The host carries out what guests asked.
     for (from, cmd) in s.take_commands() {
         let line = cmd.as_line();
-        s.log_event("script", &[("line", V::S(&line)), ("from", V::U(from.0 as u64))]);
+        s.log_event(
+            "script",
+            &[("line", V::S(&line)), ("from", V::U(from.0 as u64))],
+        );
         if from.is_host() || !state.0.coop.bank.enabled() {
             start_commands.0.push(line);
         } else {
@@ -521,7 +690,11 @@ pub(crate) fn send(
         if text.0 != line {
             text.0 = line.clone();
         }
-        *vis = if run.show_text { Visibility::Inherited } else { Visibility::Hidden };
+        *vis = if run.show_text {
+            Visibility::Inherited
+        } else {
+            Visibility::Hidden
+        };
     }
 }
 
@@ -539,5 +712,13 @@ fn at_exit(
     if events.read().next().is_none() {
         return;
     }
-    finish(&mut link.0, &mut run, &state.0, &game, time.elapsed_secs(), "exit", &live);
+    finish(
+        &mut link.0,
+        &mut run,
+        &state.0,
+        &game,
+        time.elapsed_secs(),
+        "exit",
+        &live,
+    );
 }

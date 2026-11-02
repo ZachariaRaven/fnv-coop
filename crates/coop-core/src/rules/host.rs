@@ -140,7 +140,13 @@ impl RulesHost {
 
     fn scaling_msg(&self) -> ROut {
         let n = self.party.len() as u32;
-        out(Audience::All, RulesMsg::ScalingSet { players: n.min(255) as u8, mode: self.mode })
+        out(
+            Audience::All,
+            RulesMsg::ScalingSet {
+                players: n.min(255) as u8,
+                mode: self.mode,
+            },
+        )
     }
 
     /// A player joined (the host player too).
@@ -185,26 +191,49 @@ impl RulesHost {
         let b = Barrier::new(id, tag, &self.party, now_ms);
         let required = b.required();
         self.barriers.insert(id, b);
-        let mut v = vec![out(Audience::All, RulesMsg::BarrierOpen { id, tag, required })];
+        let mut v = vec![out(
+            Audience::All,
+            RulesMsg::BarrierOpen { id, tag, required },
+        )];
         v.extend(self.settle_barrier(id));
         (id, v)
     }
 
     fn settle_barrier(&mut self, id: u32) -> Vec<ROut> {
-        let Some(b) = self.barriers.get(&id) else { return vec![] };
+        let Some(b) = self.barriers.get(&id) else {
+            return vec![];
+        };
         let (state, tag) = (b.state(), b.tag);
         match state {
             BarrierState::Waiting => vec![],
             BarrierState::Released => {
                 let players = self.party.clone();
                 self.barriers.remove(&id);
-                self.events.push(RulesEvent::BarrierReleased { id, tag, players });
-                vec![out(Audience::All, RulesMsg::BarrierResult { id, tag, released: true, reason: None })]
+                self.events
+                    .push(RulesEvent::BarrierReleased { id, tag, players });
+                vec![out(
+                    Audience::All,
+                    RulesMsg::BarrierResult {
+                        id,
+                        tag,
+                        released: true,
+                        reason: None,
+                    },
+                )]
             }
             BarrierState::Cancelled(reason) => {
                 self.barriers.remove(&id);
-                self.events.push(RulesEvent::BarrierCancelled { id, tag, reason });
-                vec![out(Audience::All, RulesMsg::BarrierResult { id, tag, released: false, reason: Some(reason) })]
+                self.events
+                    .push(RulesEvent::BarrierCancelled { id, tag, reason });
+                vec![out(
+                    Audience::All,
+                    RulesMsg::BarrierResult {
+                        id,
+                        tag,
+                        released: false,
+                        reason: Some(reason),
+                    },
+                )]
             }
         }
     }
@@ -213,11 +242,24 @@ impl RulesHost {
         match e {
             TetherEvent::Warn { players, in_ms } => players
                 .into_iter()
-                .map(|p| out(Audience::To(p), RulesMsg::TetherWarn { in_ms: in_ms as u32 }))
+                .map(|p| {
+                    out(
+                        Audience::To(p),
+                        RulesMsg::TetherWarn {
+                            in_ms: in_ms as u32,
+                        },
+                    )
+                })
                 .collect(),
             TetherEvent::Warp { players, anchor } => {
-                self.events.push(RulesEvent::Warp { players: players.clone(), anchor });
-                players.into_iter().map(|p| out(Audience::To(p), RulesMsg::TetherWarp { anchor })).collect()
+                self.events.push(RulesEvent::Warp {
+                    players: players.clone(),
+                    anchor,
+                });
+                players
+                    .into_iter()
+                    .map(|p| out(Audience::To(p), RulesMsg::TetherWarp { anchor }))
+                    .collect()
             }
             TetherEvent::Cleared => vec![],
         }
@@ -227,7 +269,12 @@ impl RulesHost {
         self.events.push(RulesEvent::Vote(o));
         vec![out(
             Audience::All,
-            RulesMsg::VoteResult { id: o.id, kind: o.kind, param: o.param, approved: o.approved },
+            RulesMsg::VoteResult {
+                id: o.id,
+                kind: o.kind,
+                param: o.param,
+                approved: o.approved,
+            },
         )]
     }
 
@@ -235,13 +282,36 @@ impl RulesHost {
         self.events.push(RulesEvent::Revive(e));
         match e {
             ReviveEvent::Downed(p) => vec![out(Audience::All, RulesMsg::Downed { player: p })],
-            ReviveEvent::Revived { player, helper, health_pct } => vec![
-                out(Audience::All, RulesMsg::ReviveProgress { target: player, helper: None }),
-                out(Audience::All, RulesMsg::Revived { player, helper, health_pct }),
+            ReviveEvent::Revived {
+                player,
+                helper,
+                health_pct,
+            } => vec![
+                out(
+                    Audience::All,
+                    RulesMsg::ReviveProgress {
+                        target: player,
+                        helper: None,
+                    },
+                ),
+                out(
+                    Audience::All,
+                    RulesMsg::Revived {
+                        player,
+                        helper,
+                        health_pct,
+                    },
+                ),
             ],
             ReviveEvent::Respawn(p) => vec![out(Audience::All, RulesMsg::Respawn { player: p })],
             ReviveEvent::Cancelled { target, .. } => {
-                vec![out(Audience::All, RulesMsg::ReviveProgress { target, helper: None })]
+                vec![out(
+                    Audience::All,
+                    RulesMsg::ReviveProgress {
+                        target,
+                        helper: None,
+                    },
+                )]
             }
             ReviveEvent::Wipe => vec![out(Audience::All, RulesMsg::Wipe)],
         }
@@ -283,21 +353,45 @@ impl RulesHost {
                 );
                 match p {
                     Proposal::Free => {
-                        self.events.push(RulesEvent::FreeTravel { player: from, param });
+                        self.events.push(RulesEvent::FreeTravel {
+                            player: from,
+                            param,
+                        });
                         vec![out(
                             Audience::To(from),
-                            RulesMsg::VoteResult { id: 0, kind: VoteKind::FastTravel, param, approved: true },
+                            RulesMsg::VoteResult {
+                                id: 0,
+                                kind: VoteKind::FastTravel,
+                                param,
+                                approved: true,
+                            },
                         )]
                     }
                     Proposal::Started(id) => {
-                        let mut v = vec![out(Audience::All, RulesMsg::VoteOpen { id, kind, param, proposer: from })];
+                        let mut v = vec![out(
+                            Audience::All,
+                            RulesMsg::VoteOpen {
+                                id,
+                                kind,
+                                param,
+                                proposer: from,
+                            },
+                        )];
                         if let Some(o) = outcome {
                             v.extend(self.vote_out(o));
                         }
                         v
                     }
                     Proposal::Busy | Proposal::InCombat => {
-                        vec![out(Audience::To(from), RulesMsg::VoteResult { id: 0, kind, param, approved: false })]
+                        vec![out(
+                            Audience::To(from),
+                            RulesMsg::VoteResult {
+                                id: 0,
+                                kind,
+                                param,
+                                approved: false,
+                            },
+                        )]
                     }
                 }
             }
@@ -309,10 +403,21 @@ impl RulesHost {
                 let ev = self.revive.set_down(from, now_ms, revivable);
                 ev.into_iter().flat_map(|e| self.revive_out(e)).collect()
             }
-            RulesMsg::ReviveBegin { target } => match self.revive.begin(from, target, now_ms, dist(from, target)) {
-                Ok(()) => vec![out(Audience::All, RulesMsg::ReviveProgress { target, helper: Some(from) })],
-                Err(reason) => vec![out(Audience::To(from), RulesMsg::ReviveDenied { target, reason })],
-            },
+            RulesMsg::ReviveBegin { target } => {
+                match self.revive.begin(from, target, now_ms, dist(from, target)) {
+                    Ok(()) => vec![out(
+                        Audience::All,
+                        RulesMsg::ReviveProgress {
+                            target,
+                            helper: Some(from),
+                        },
+                    )],
+                    Err(reason) => vec![out(
+                        Audience::To(from),
+                        RulesMsg::ReviveDenied { target, reason },
+                    )],
+                }
+            }
             RulesMsg::ReviveCancel => match self.revive.cancel(from) {
                 Some(e) => self.revive_out(e),
                 None => vec![],
@@ -322,7 +427,11 @@ impl RulesHost {
     }
 
     /// Advances every timer.
-    pub fn tick(&mut self, now_ms: u64, dist: &dyn Fn(PlayerId, PlayerId) -> Option<f32>) -> Vec<ROut> {
+    pub fn tick(
+        &mut self,
+        now_ms: u64,
+        dist: &dyn Fn(PlayerId, PlayerId) -> Option<f32>,
+    ) -> Vec<ROut> {
         let mut v = Vec::new();
         for e in self.tether.tick(now_ms) {
             v.extend(self.tether_out(e));
@@ -371,7 +480,10 @@ mod tests {
         let mut r = r;
         let o = r.on_leave(B, 200_000);
         assert!(matches!(o[0].msg, RulesMsg::ScalingSet { players: 2, .. }));
-        assert!(r.on_join(A, 0).is_empty(), "rejoin of a known player is a no-op");
+        assert!(
+            r.on_join(A, 0).is_empty(),
+            "rejoin of a known player is a no-op"
+        );
     }
 
     #[test]
@@ -381,7 +493,9 @@ mod tests {
         r.on_msg(H, RulesMsg::BarrierReady { id }, 1, &near);
         r.on_msg(A, RulesMsg::BarrierReady { id }, 1, &near);
         let o = r.on_leave(B, 2);
-        assert!(o.iter().any(|x| matches!(x.msg, RulesMsg::BarrierResult { released: true, .. })));
+        assert!(o
+            .iter()
+            .any(|x| matches!(x.msg, RulesMsg::BarrierResult { released: true, .. })));
         let ev = r.take_events();
         assert!(ev.iter().any(|e| matches!(e, RulesEvent::BarrierReleased { tag: 5, players, .. } if players.len() == 2)));
     }
@@ -391,38 +505,107 @@ mod tests {
         let mut r = rules();
         let (id, _) = r.open_barrier(1, 0);
         let o = r.on_msg(A, RulesMsg::BarrierDecline { id }, 1, &near);
-        assert!(matches!(o[0].msg, RulesMsg::BarrierResult { released: false, reason: Some(CancelReason::Declined), .. }));
+        assert!(matches!(
+            o[0].msg,
+            RulesMsg::BarrierResult {
+                released: false,
+                reason: Some(CancelReason::Declined),
+                ..
+            }
+        ));
         let (_, _) = r.open_barrier(2, 10);
         let o = r.tick(10 + barrier::TIMEOUT_MS, &near);
-        assert!(matches!(o[0].msg, RulesMsg::BarrierResult { reason: Some(CancelReason::Timeout), .. }));
+        assert!(matches!(
+            o[0].msg,
+            RulesMsg::BarrierResult {
+                reason: Some(CancelReason::Timeout),
+                ..
+            }
+        ));
     }
 
     #[test]
     fn non_members_are_ignored() {
         let mut r = rules();
-        assert!(r.on_msg(PlayerId(9), RulesMsg::ReportDown { revivable: true }, 0, &near).is_empty());
+        assert!(r
+            .on_msg(
+                PlayerId(9),
+                RulesMsg::ReportDown { revivable: true },
+                0,
+                &near
+            )
+            .is_empty());
         assert!(!r.revive.is_downed(PlayerId(9)));
     }
 
     #[test]
     fn sleep_vote_flow() {
         let mut r = rules();
-        let o = r.on_msg(A, RulesMsg::VoteRequest { kind: VoteKind::Sleep, param: 8 }, 0, &near);
-        let RulesMsg::VoteOpen { id, .. } = o[0].msg else { panic!() };
+        let o = r.on_msg(
+            A,
+            RulesMsg::VoteRequest {
+                kind: VoteKind::Sleep,
+                param: 8,
+            },
+            0,
+            &near,
+        );
+        let RulesMsg::VoteOpen { id, .. } = o[0].msg else {
+            panic!()
+        };
         r.on_msg(H, RulesMsg::VoteCast { id, yes: true }, 1, &near);
         let o = r.on_msg(B, RulesMsg::VoteCast { id, yes: true }, 2, &near);
-        assert!(matches!(o[0].msg, RulesMsg::VoteResult { approved: true, param: 8, .. }));
+        assert!(matches!(
+            o[0].msg,
+            RulesMsg::VoteResult {
+                approved: true,
+                param: 8,
+                ..
+            }
+        ));
     }
 
     #[test]
     fn fast_travel_free_and_combat_blocks_sleep() {
         let mut r = rules();
-        let o = r.on_msg(A, RulesMsg::VoteRequest { kind: VoteKind::FastTravel, param: 3 }, 0, &near);
-        assert!(matches!(o[0].msg, RulesMsg::VoteResult { id: 0, approved: true, .. }));
-        assert!(r.take_events().iter().any(|e| matches!(e, RulesEvent::FreeTravel { param: 3, .. })));
+        let o = r.on_msg(
+            A,
+            RulesMsg::VoteRequest {
+                kind: VoteKind::FastTravel,
+                param: 3,
+            },
+            0,
+            &near,
+        );
+        assert!(matches!(
+            o[0].msg,
+            RulesMsg::VoteResult {
+                id: 0,
+                approved: true,
+                ..
+            }
+        ));
+        assert!(r
+            .take_events()
+            .iter()
+            .any(|e| matches!(e, RulesEvent::FreeTravel { param: 3, .. })));
         r.in_combat = true;
-        let o = r.on_msg(A, RulesMsg::VoteRequest { kind: VoteKind::Sleep, param: 8 }, 0, &near);
-        assert!(matches!(o[0].msg, RulesMsg::VoteResult { approved: false, .. }));
+        let o = r.on_msg(
+            A,
+            RulesMsg::VoteRequest {
+                kind: VoteKind::Sleep,
+                param: 8,
+            },
+            0,
+            &near,
+        );
+        assert!(matches!(
+            o[0].msg,
+            RulesMsg::VoteResult {
+                approved: false,
+                ..
+            }
+        ));
     }
 
     #[test]
@@ -431,12 +614,25 @@ mod tests {
         let o = r.on_msg(A, RulesMsg::ReportDown { revivable: true }, 1000, &near);
         assert!(matches!(o[0].msg, RulesMsg::Downed { player: A }));
         let o = r.on_msg(B, RulesMsg::ReviveBegin { target: A }, 2000, &near);
-        assert!(matches!(o[0].msg, RulesMsg::ReviveProgress { helper: Some(B), .. }));
+        assert!(matches!(
+            o[0].msg,
+            RulesMsg::ReviveProgress {
+                helper: Some(B),
+                ..
+            }
+        ));
         let far = |_: PlayerId, _: PlayerId| Some(900.0);
         let o = r.on_msg(H, RulesMsg::ReviveBegin { target: A }, 2100, &far);
         assert!(matches!(o[0].msg, RulesMsg::ReviveDenied { .. }));
         let o = r.tick(5000, &near);
-        assert!(o.iter().any(|x| matches!(x.msg, RulesMsg::Revived { player: A, helper: B, health_pct: 30 })));
+        assert!(o.iter().any(|x| matches!(
+            x.msg,
+            RulesMsg::Revived {
+                player: A,
+                helper: B,
+                health_pct: 30
+            }
+        )));
     }
 
     #[test]
@@ -445,10 +641,16 @@ mod tests {
         let party = r.party().to_vec();
         r.tether.start(0, 42, &party, &[H, A]);
         let o = r.tick(tether_warn_at(), &near);
-        assert!(matches!(o[0].msg, RulesMsg::TetherWarn { in_ms: 10_000 }) && o[0].aud == Audience::To(B));
+        assert!(
+            matches!(o[0].msg, RulesMsg::TetherWarn { in_ms: 10_000 })
+                && o[0].aud == Audience::To(B)
+        );
         let o = r.tick(120_000, &near);
         assert!(matches!(o[0].msg, RulesMsg::TetherWarp { anchor: 42 }));
-        assert!(r.take_events().iter().any(|e| matches!(e, RulesEvent::Warp { anchor: 42, .. })));
+        assert!(r
+            .take_events()
+            .iter()
+            .any(|e| matches!(e, RulesEvent::Warp { anchor: 42, .. })));
     }
 
     fn tether_warn_at() -> u64 {

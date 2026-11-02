@@ -39,7 +39,16 @@ pub struct RunOpts {
 
 impl Default for RunOpts {
     fn default() -> Self {
-        RunOpts { seed: None, net: None, fps: 40, out: None, path: "SCENARIO.json".into(), data_arg: None, talk_at_ready: false, fixed_glue: false }
+        RunOpts {
+            seed: None,
+            net: None,
+            fps: 40,
+            out: None,
+            path: "SCENARIO.json".into(),
+            data_arg: None,
+            talk_at_ready: false,
+            fixed_glue: false,
+        }
     }
 }
 
@@ -54,7 +63,9 @@ pub struct RunResult {
 }
 
 fn fnv(bytes: &[u8]) -> u64 {
-    bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ *b as u64).wrapping_mul(0x0000_0100_0000_01b3))
+    bytes.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ *b as u64).wrapping_mul(0x0000_0100_0000_01b3)
+    })
 }
 
 /// A reason this scenario cannot run on this data (never guessed around).
@@ -64,9 +75,15 @@ pub fn needs_assets(scn: &Scenario, d: &Data) -> Option<String> {
             return Some(format!("viewer flag {a} has no headless model"));
         }
     }
-    let cell = scn.cell.as_deref().unwrap_or(coop_session::start::LOCAL_ROOM);
+    let cell = scn
+        .cell
+        .as_deref()
+        .unwrap_or(coop_session::start::LOCAL_ROOM);
     if let Err(e) = d.place(cell) {
-        return Some(format!("{e} (this folder has {} plugins; run against the full Data folder)", d.order.plugins().len()));
+        return Some(format!(
+            "{e} (this folder has {} plugins; run against the full Data folder)",
+            d.order.plugins().len()
+        ));
     }
     for side in [&scn.host, &scn.guest] {
         for l in &side.script {
@@ -75,9 +92,13 @@ pub fn needs_assets(scn: &Scenario, d: &Data) -> Option<String> {
             let words: Vec<&str> = r.split_whitespace().collect();
             let mut names: Vec<&str> = Vec::new();
             if is_bot_line(r) {
-                let verb = words.get(1).map(|w| w.to_ascii_lowercase()).unwrap_or_default();
+                let verb = words
+                    .get(1)
+                    .map(|w| w.to_ascii_lowercase())
+                    .unwrap_or_default();
                 let refs = match verb.as_str() {
-                    "hit" | "talk" | "pick" | "lootopen" | "lootclose" | "travel" | "tether" | "cell" => 1,
+                    "hit" | "talk" | "pick" | "lootopen" | "lootclose" | "travel" | "tether"
+                    | "cell" => 1,
                     "loottake" | "lootput" => 2,
                     _ => 0,
                 };
@@ -86,7 +107,9 @@ pub fn needs_assets(scn: &Scenario, d: &Data) -> Option<String> {
                 names.push(who);
             }
             if let Some(n) = names.iter().find(|n| d.form(n).is_none()) {
-                return Some(format!("{n} is not in this load order (needs the full Data folder)"));
+                return Some(format!(
+                    "{n} is not in this load order (needs the full Data folder)"
+                ));
             }
         }
     }
@@ -124,12 +147,23 @@ fn peer_facts(p: &Peer, role: &str) -> PeerFacts {
 }
 
 fn dir_of(c: &crate::net::Ctl) -> Dir {
-    Dir { inn: c.sent, forwarded: c.stats.released, dropped: c.stats.dropped + c.cut_drops, duplicated: c.stats.duplicated, reordered: c.stats.reordered }
+    Dir {
+        inn: c.sent,
+        forwarded: c.stats.released,
+        dropped: c.stats.dropped + c.cut_drops,
+        duplicated: c.stats.duplicated,
+        reordered: c.stats.reordered,
+    }
 }
 
 fn cfg(name: &str, t: crate::net::SimLink, side: &crate::scenario::Side) -> SessionConfig {
     SessionConfig {
-        compat: coop_session::CompatConfig { exe: "1.4.0.525".into(), plugins: side.plugins.clone(), allow_mismatch: side.allow_mismatch, ..Default::default() },
+        compat: coop_session::CompatConfig {
+            exe: "1.4.0.525".into(),
+            plugins: side.plugins.clone(),
+            allow_mismatch: side.allow_mismatch,
+            ..Default::default()
+        },
         name: name.into(),
         session_id: 0xC00B,
         transport: Some(Box::new(t)),
@@ -144,24 +178,70 @@ type Built = (Peer, Peer, CtlRef, CtlRef, VirtualClock);
 /// A fresh link, two sessions and two peers; the party layer is attached when `party` is a
 /// directory.
 #[allow(clippy::too_many_arguments)]
-fn build_peers(scn: &Scenario, d: &Arc<Data>, place: &crate::data::Place, profile: ChaosProfile, seed: u64, hs: &Side, gsd: &Side, party: Option<&Path>, key: u64, o: &RunOpts) -> Result<Built, String> {
+fn build_peers(
+    scn: &Scenario,
+    d: &Arc<Data>,
+    place: &crate::data::Place,
+    profile: ChaosProfile,
+    seed: u64,
+    hs: &Side,
+    gsd: &Side,
+    party: Option<&Path>,
+    key: u64,
+    o: &RunOpts,
+) -> Result<Built, String> {
     let link = Link::new(profile, seed);
-    let Link { host: lh, guest: lg, h2g, g2h, clock } = link;
-    let (mut hsn, mut gsn) = match (Session::host(cfg("Host", lh, hs)), Session::join(cfg("Guest 1", lg, gsd))) {
+    let Link {
+        host: lh,
+        guest: lg,
+        h2g,
+        g2h,
+        clock,
+    } = link;
+    let (mut hsn, mut gsn) = match (
+        Session::host(cfg("Host", lh, hs)),
+        Session::join(cfg("Guest 1", lg, gsd)),
+    ) {
         (Ok(h), Ok(g)) => (h, g),
         (Err(e), _) | (_, Err(e)) => return Err(format!("session: {e}")),
     };
-    hsn.set_start_config(coop_session::StartConfig { new_game: scn.new_game, ..Default::default() });
-    let own = if scn.new_game || scn.character_creation { coop_session::OwnCharacter::Create } else { coop_session::OwnCharacter::Skip };
-    gsn.set_start_config(coop_session::StartConfig { new_game: false, own });
+    hsn.set_start_config(coop_session::StartConfig {
+        new_game: scn.new_game,
+        ..Default::default()
+    });
+    let own = if scn.new_game || scn.character_creation {
+        coop_session::OwnCharacter::Create
+    } else {
+        coop_session::OwnCharacter::Skip
+    };
+    gsn.set_start_config(coop_session::StartConfig {
+        new_game: false,
+        own,
+    });
     // `host_cell`: the host starts in another cell than the guest (late join into another scene)
     let mut host_place = place.clone();
     if let Some(c) = scn.host_cell.as_deref().and_then(|c| d.form(c)) {
         host_place.cell = c;
         host_place.actors.clear();
     }
-    let mut host = Peer::new(Role::Host, hsn, d, &host_place, hs, !o.talk_at_ready, o.fixed_glue);
-    let mut guest = Peer::new(Role::Guest, gsn, d, place, gsd, !o.talk_at_ready, o.fixed_glue);
+    let mut host = Peer::new(
+        Role::Host,
+        hsn,
+        d,
+        &host_place,
+        hs,
+        !o.talk_at_ready,
+        o.fixed_glue,
+    );
+    let mut guest = Peer::new(
+        Role::Guest,
+        gsn,
+        d,
+        place,
+        gsd,
+        !o.talk_at_ready,
+        o.fixed_glue,
+    );
     if let Some(dir) = party {
         crate::party::attach(&mut host, key, dir);
         crate::party::attach(&mut guest, key, dir);
@@ -183,15 +263,30 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
         "coop-sim run {} --seed {}{}{}",
         o.path,
         seed,
-        o.net.as_ref().map(|n| format!(" --net {n}")).unwrap_or_default(),
-        o.data_arg.as_ref().map(|n| format!(" --data {n}")).unwrap_or_default()
+        o.net
+            .as_ref()
+            .map(|n| format!(" --net {n}"))
+            .unwrap_or_default(),
+        o.data_arg
+            .as_ref()
+            .map(|n| format!(" --data {n}"))
+            .unwrap_or_default()
     );
-    let mut facts = RunFacts { rerun, seed, run_id: format!("seed{seed}"), ..RunFacts::default() };
+    let mut facts = RunFacts {
+        rerun,
+        seed,
+        run_id: format!("seed{seed}"),
+        ..RunFacts::default()
+    };
     facts.relay.profile = scn.network.clone();
     let finish = |facts: RunFacts, dumps: [String; 2]| {
         let verdict = judge(&scn, &facts);
         let hash = fnv(dumps[0].as_bytes()) ^ fnv(dumps[1].as_bytes()).rotate_left(1);
-        RunResult { verdict, hash, dumps }
+        RunResult {
+            verdict,
+            hash,
+            dumps,
+        }
     };
     let t_prof = std::time::Instant::now();
     let prof = std::env::var_os("COOP_SIM_PROF").is_some();
@@ -202,7 +297,10 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
     if prof {
         eprintln!("prof: needs_assets {:.2} s", t_prof.elapsed().as_secs_f64());
     }
-    let cell_name = scn.cell.clone().unwrap_or_else(|| coop_session::start::LOCAL_ROOM.to_string());
+    let cell_name = scn
+        .cell
+        .clone()
+        .unwrap_or_else(|| coop_session::start::LOCAL_ROOM.to_string());
     let place = match d.place(&cell_name) {
         Ok(mut p) => {
             add_named_people(&mut p, &scn, d);
@@ -214,17 +312,38 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
         }
     };
     if prof {
-        eprintln!("prof: place {:.2} s, {} people {:?}", t_prof.elapsed().as_secs_f64(), place.actors.len(), place.actors.iter().map(|a| a.0).collect::<Vec<_>>());
+        eprintln!(
+            "prof: place {:.2} s, {} people {:?}",
+            t_prof.elapsed().as_secs_f64(),
+            place.actors.len(),
+            place.actors.iter().map(|a| a.0).collect::<Vec<_>>()
+        );
     }
     let profile = ChaosProfile::by_name(&scn.network).unwrap_or(ChaosProfile::PERFECT);
     let party_dir: Option<PathBuf> = scn.party.as_ref().map(|_| {
-        let dir = std::env::temp_dir().join(format!("coop-sim-party-{}-{}-{}", std::process::id(), scn.name, seed));
+        let dir = std::env::temp_dir().join(format!(
+            "coop-sim-party-{}-{}-{}",
+            std::process::id(),
+            scn.name,
+            seed
+        ));
         let _ = std::fs::remove_dir_all(&dir);
         let _ = std::fs::create_dir_all(&dir);
         dir
     });
     let key = scn.party.as_ref().map_or(0, |p| p.guest_key);
-    let (mut host, mut guest, mut h2g, mut g2h, mut clock) = match build_peers(&scn, d, &place, profile, seed, &scn.host, &scn.guest, party_dir.as_deref(), key, o) {
+    let (mut host, mut guest, mut h2g, mut g2h, mut clock) = match build_peers(
+        &scn,
+        d,
+        &place,
+        profile,
+        seed,
+        &scn.host,
+        &scn.guest,
+        party_dir.as_deref(),
+        key,
+        o,
+    ) {
         Ok(x) => x,
         Err(e) => {
             facts.harness_error = Some(e);
@@ -233,7 +352,10 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
     };
     let mut restarted = false;
     let _ = PlayerId::HOST;
-    let cx = Ctx { order: &d.order, scripts: &d.scripts };
+    let cx = Ctx {
+        order: &d.order,
+        scripts: &d.scripts,
+    };
     let step_ms = (1000 / o.fps.max(1)) as u64;
     let dt = step_ms as f32 / 1000.0;
     let launch_limit_s = 120.0;
@@ -271,13 +393,28 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
         if end_s.is_none() && scn.expect_refused && guest.counters.compat_refused > 0 {
             end_s = Some(t + 2.0 + scn.settle_s);
         }
-                // "drop everything": both peers are replaced by new ones that start from the party save
+        // "drop everything": both peers are replaced by new ones that start from the party save
         if let (Some(pc), Some(dir), false) = (&scn.party, &party_dir, restarted) {
             if let (Some(at), Some(a), Some(b)) = (pc.restart_at, host.ready_at, guest.ready_at) {
                 if t >= a.max(b) + at {
                     restarted = true;
-                    let key2 = if pc.guest_same_key { pc.guest_key } else { pc.guest_key + 1 };
-                    match build_peers(&scn, d, &place, profile, seed ^ 0x5EC0, &pc.second_host, &pc.second_guest, Some(dir), key2, o) {
+                    let key2 = if pc.guest_same_key {
+                        pc.guest_key
+                    } else {
+                        pc.guest_key + 1
+                    };
+                    match build_peers(
+                        &scn,
+                        d,
+                        &place,
+                        profile,
+                        seed ^ 0x5EC0,
+                        &pc.second_host,
+                        &pc.second_guest,
+                        Some(dir),
+                        key2,
+                        o,
+                    ) {
                         Ok((h, g, a2, b2, c2)) => {
                             (host, guest, h2g, g2h, clock) = (h, g, a2, b2, c2);
                             if pc.host_loads {
@@ -303,7 +440,8 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
                 }
             }
         }
-        let restart_pending = scn.party.as_ref().is_some_and(|pc| pc.restart_at.is_some()) && !restarted;
+        let restart_pending =
+            scn.party.as_ref().is_some_and(|pc| pc.restart_at.is_some()) && !restarted;
         if end_s.is_none() && !restart_pending {
             if let (Some(a), Some(b)) = (host.ready_at, guest.ready_at) {
                 let dur = match (&scn.party, restarted) {
@@ -331,7 +469,10 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
         // a refusal is the end state: it is logged as an error by the guest, and neither peer reaches ready
         facts.host.ready = true;
         facts.guest.ready = true;
-        facts.guest.errors.retain(|e| !e.contains("refused the connection"));
+        facts
+            .guest
+            .errors
+            .retain(|e| !e.contains("refused the connection"));
     }
     facts.relay = RelayFacts {
         profile: scn.network.clone(),
@@ -342,7 +483,13 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
     };
     facts.duration_s = t;
     let mut modelled: Vec<String> = host.modelled.union(&guest.modelled).cloned().collect();
-    if scn.host.script.iter().chain(scn.guest.script.iter()).any(|l| matches!(l.action, Action::Key(..))) {
+    if scn
+        .host
+        .script
+        .iter()
+        .chain(scn.guest.script.iter())
+        .any(|l| matches!(l.action, Action::Key(..)))
+    {
         modelled.push("movement: keys move the player 150 units a second in its facing direction, no collision".into());
     }
     facts.modelled = modelled;
@@ -355,7 +502,10 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
     }
     let r = finish(facts, dumps);
     if let Some(dir) = &o.out {
-        let _ = std::fs::write(run_dir(dir, &scn, seed).join("verdict.json"), r.verdict.json.dump());
+        let _ = std::fs::write(
+            run_dir(dir, &scn, seed).join("verdict.json"),
+            r.verdict.json.dump(),
+        );
     }
     r
 }

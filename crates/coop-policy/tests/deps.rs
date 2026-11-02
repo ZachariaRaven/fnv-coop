@@ -12,7 +12,10 @@ fn serde_json_is_not_a_normal_dependency() {
             continue;
         }
         if section == "[dependencies]" {
-            assert!(!line.starts_with("serde_json"), "serde_json is back in [dependencies]: {line}");
+            assert!(
+                !line.starts_with("serde_json"),
+                "serde_json is back in [dependencies]: {line}"
+            );
         }
     }
 }
