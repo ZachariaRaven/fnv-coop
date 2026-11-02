@@ -73,7 +73,7 @@ impl PolicyTable {
     }
 
     pub fn from_json(text: &str) -> Result<PolicyTable, LoadError> {
-        let file: PolicyFile = serde_json::from_str(text).map_err(|e| LoadError::Parse(e.to_string()))?;
+        let file: PolicyFile = crate::json::from_str(text).map_err(|e| LoadError::Parse(e.to_string()))?;
         PolicyTable::from_file(file)
     }
 
