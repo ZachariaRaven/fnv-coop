@@ -62,10 +62,12 @@ def load_config(path=None):
 
 
 def free_udp_port(start):
+    # Probe the wildcard address: the viewer binds 0.0.0.0. On Windows a bind on
+    # 127.0.0.1 succeeds while another socket holds 0.0.0.0 on the same port.
     for p in range(start, start + 200):
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         try:
-            s.bind(("127.0.0.1", p))
+            s.bind(("0.0.0.0", p))
             return p
         except OSError:
             continue

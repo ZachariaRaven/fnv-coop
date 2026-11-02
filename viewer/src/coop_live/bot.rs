@@ -280,9 +280,8 @@ pub fn run(
                 }
             }
             Some("lock") => {
-                let quest = arg(3)
-                    .and_then(|w| u32::from_str_radix(w.trim_start_matches("0x"), 16).ok())
-                    .map(FormId);
+                // the policy row by editor id, else an editor id or a hex form id of the load order
+                let quest = arg(3).and_then(|w| gs.coop_policy_quest(w)).or_else(|| f(3));
                 gs.coop_controls_begin();
                 for (i, c) in arg(2).unwrap_or("").chars().take(7).enumerate() {
                     gs.controls_off[i] = c == '1';
@@ -297,8 +296,7 @@ pub fn run(
             Some("skip") => gs.coop_scene_skip(arg(2) != Some("no")),
             Some("vote") => link.0.live_intent(Intent::Answer(arg(2) != Some("no"))),
             Some("initiate") => {
-                let q =
-                    arg(2).and_then(|w| u32::from_str_radix(w.trim_start_matches("0x"), 16).ok());
+                let q = arg(2).and_then(|w| gs.coop_policy_quest(w)).or_else(|| f(2)).map(|q| q.0);
                 if let (Some(q), Some(g)) = (q, gs.coop.gate.as_mut()) {
                     g.begin_interaction(FormId(q), n(3) as u8);
                 }

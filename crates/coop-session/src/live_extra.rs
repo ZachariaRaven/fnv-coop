@@ -117,7 +117,10 @@ impl Extra {
         now_ms: u64,
     ) -> Option<f64> {
         let hours = live.env.clock.sample(now_ms);
-        if let Some(h) = hours {
+        // The scene layer's clock follower (`world::coop::scene::follow_clock`) owns the guest's
+        // clock once the host's clock has arrived: it keeps `GameDaysPassed` continuous, as the
+        // game does. Writing the whole days here as well set the day back every frame.
+        if let Some(h) = hours.filter(|_| !gs.coop.live.scene.follow) {
             write_clock(cx.order, gs, h);
         }
         if let Some(s) = live.env.take_sky() {

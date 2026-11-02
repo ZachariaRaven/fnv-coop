@@ -185,6 +185,16 @@ class E2E(unittest.TestCase):
 
 
 class Pieces(unittest.TestCase):
+    def test_free_udp_port_skips_a_port_held_on_every_address(self):
+        import socket
+        held = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        held.bind(("0.0.0.0", 0))
+        try:
+            port = held.getsockname()[1]
+            self.assertNotEqual(runner.free_udp_port(port), port)
+        finally:
+            held.close()
+
     def test_scorer_selftest_passes(self):
         self.assertEqual(verdict.scorer_selftest(), [])
 

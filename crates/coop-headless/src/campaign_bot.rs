@@ -5,12 +5,14 @@
 //! coop dismiss SLOT NPC
 //! coop command SLOT NPC OP       OP: wait | follow | trade (owner only)
 //! coop down SLOT [QUEST]         the player in SLOT is downed
-//! coop revive SLOT
+//! coop downrevive SLOT         the downed player in SLOT stands up (campaign layer only;
+//!                                `coop revive SLOT` is the live revive of the viewer's bot)
 //! coop stash SLOT HOLDER ITEM N  put N of ITEM into HOLDER as that player
 //! coop give SLOT ITEM N          N of ITEM into the player's inventory
 //! coop level SLOT N              set the player's level
 //! coop objvar SLOT OWNER SCRIPT VAR VALUE   a script object variable as that player
-//! coop vote QUEST SLOT yes|no    a vote on an open fork
+//! coop vote QUEST SLOT yes|no    a vote on an open fork (`coop vote [yes|no]` answers the
+//!                                party prompt in `bot.rs`, as the viewer's bot does)
 //! coop fork QUEST CHOICE         a script asks to take the fork
 //! coop pcond QUEST FUNC [ARG]    party condition probe, result in campaign.probes.QUEST.FUNC
 //! coop ffhit SLOT QUEST IDX AMT  SLOT hits the IDX-th protected actor of QUEST's row
@@ -35,7 +37,7 @@ pub fn is_campaign_verb(v: &str) -> bool {
             | "dismiss"
             | "command"
             | "down"
-            | "revive"
+            | "downrevive"
             | "stash"
             | "give"
             | "level"
@@ -47,14 +49,28 @@ pub fn is_campaign_verb(v: &str) -> bool {
     )
 }
 
-/// Runs one campaign verb. Returns false when `verb` is not one of them.
-pub fn run(verb: &str, words: &[&str], d: &Data, gs: &mut GameState, cx: Ctx) -> bool {
+/// Whether this file runs the line (the verbs shared with `bot.rs` are told
+/// apart by their arguments).
+pub fn claims(verb: &str, words: &[&str]) -> bool {
     if !is_campaign_verb(verb) {
         return false;
     }
     // `coop give HOLDER ITEM N` (a vendor, a container) is the interaction bots' verb
     // (`bot.rs`): only the slot form is this file's
     if verb == "give" && words.get(2).and_then(|w| w.parse::<u8>().ok()).is_none() {
+        return false;
+    }
+    // `coop vote [yes|no]` answers the party prompt (`bot.rs`, the viewer's verb): only
+    // the fork form `coop vote QUEST SLOT yes|no` is this file's
+    if verb == "vote" && (words.len() < 5 || matches!(words.get(2).copied(), Some("yes" | "no"))) {
+        return false;
+    }
+    true
+}
+
+/// Runs one campaign verb. Returns false when the line is not one of them.
+pub fn run(verb: &str, words: &[&str], d: &Data, gs: &mut GameState, cx: Ctx) -> bool {
+    if !claims(verb, words) {
         return false;
     }
     if gs.coop.authority != Authority::Host {
@@ -91,7 +107,7 @@ pub fn run(verb: &str, words: &[&str], d: &Data, gs: &mut GameState, cx: Ctx) ->
                 downed::player_down(gs, s, form(3));
             }
         }
-        "revive" => {
+        "downrevive" => {
             if let Some(s) = slot(2) {
                 downed::revive(gs, s);
             }
@@ -185,4 +201,37 @@ pub fn run(verb: &str, words: &[&str], d: &Data, gs: &mut GameState, cx: Ctx) ->
     }
     let _ = FormId(0);
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::claims;
+
+    fn line(s: &str) -> (String, Vec<&str>) {
+        let w: Vec<&str> = s.split_whitespace().collect();
+        (w[1].to_string(), w)
+    }
+
+    #[test]
+    fn the_viewers_verbs_stay_with_the_live_bot() {
+        for l in [
+            "coop vote yes",
+            "coop vote no",
+            "coop vote",
+            "coop revive 1",
+            "coop give TestVendorRef Caps001 5",
+        ] {
+            let (v, w) = line(l);
+            assert!(!claims(&v, &w), "{l} must reach bot.rs");
+        }
+        for l in [
+            "coop vote NVDLC01ElijahDialogue 1 yes",
+            "coop downrevive 1",
+            "coop down 1",
+            "coop give 1 Caps001 5",
+        ] {
+            let (v, w) = line(l);
+            assert!(claims(&v, &w), "{l} is a campaign line");
+        }
+    }
 }

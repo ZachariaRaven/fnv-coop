@@ -889,6 +889,13 @@ fn give(gs: &mut GameState, order: &LoadOrder, grant: &Grant) {
 }
 
 impl GameState {
+    /// The runtime form id of the policy row named `edid` (a quest's editor id). The gate's
+    /// rows are remapped to the load order, so this is right whatever index a plugin has.
+    pub fn coop_policy_quest(&self, edid: &str) -> Option<esm::FormId> {
+        let row = self.coop.gate.as_ref()?.table().row_by_edid(edid)?;
+        Some(esm::FormId(row.id))
+    }
+
     /// Turns the campaign policy on: installs the gate and the shadow plan
     /// derived from the table. `me` is the slot owning the live rows.
     pub fn enable_coop_policy(&mut self, table: Arc<PolicyTable>, me: u8) {
