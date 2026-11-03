@@ -90,6 +90,10 @@ pub struct HostSync {
     pub repairs_sent: u32,
     /// Full snapshots sent so far (diagnostics).
     pub snapshots_sent: u32,
+    /// Joins turned away because the party was full (`Reject(Full)`), one per
+    /// refused player (a repeated hello of the same player is not counted again).
+    pub full_refusals: u32,
+    refused_full: std::collections::BTreeSet<PlayerId>,
 }
 
 impl HostSync {
@@ -113,6 +117,8 @@ impl HostSync {
             deferred: Vec::new(),
             repairs_sent: 0,
             snapshots_sent: 0,
+            full_refusals: 0,
+            refused_full: std::collections::BTreeSet::new(),
         }
     }
 
@@ -177,6 +183,9 @@ impl HostSync {
             Msg::Hello(h) => {
                 if !self.guests.contains_key(&from) && self.guests.len() >= self.cfg.max_guests {
                     out.push((from, Msg::Reject(RejectReason::Full)));
+                    if self.refused_full.insert(from) {
+                        self.full_refusals += 1;
+                    }
                 } else if let crate::compat::Verdict::Refuse(r, found) =
                     crate::compat::decide(&self.cfg.hello, &h, self.cfg.compat)
                 {
@@ -199,6 +208,7 @@ impl HostSync {
                         });
                     }
                     self.guests.entry(from).or_default().active = false;
+                    self.refused_full.remove(&from);
                     out.push((
                         from,
                         Msg::Welcome {

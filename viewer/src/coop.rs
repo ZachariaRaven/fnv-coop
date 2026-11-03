@@ -212,6 +212,7 @@ pub fn connect(args: &mut Args, order: &esm::LoadOrder) -> Result<Option<Started
             allow_mismatch: c.allow_mismatch,
         },
         log: c.log.clone(),
+        rules: c.rules,
         ..SessionConfig::default()
     };
     // Transport: UDP or Steam, random per-session token (see coop_link, coop_session::link).

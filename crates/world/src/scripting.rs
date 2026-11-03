@@ -1234,6 +1234,9 @@ pub enum Event {
     MoveTo {
         what: FormId,
         to: FormId,
+        /// The exact spot, when it is not the target's own spot (the
+        /// offsets of `MoveToMarker`, a party warp's ring around an anchor).
+        at: Option<[f32; 3]>,
     },
     Sound(FormId),
     /// `Activate`: something activated (by someone).
@@ -2109,6 +2112,11 @@ impl Facts<'_> {
                 let (who, other) = (on?, arg(0).form());
                 if s.dead.contains(&who) {
                     0.0
+                } else if other == PLAYER_REF && s.coop.authority.replicates() {
+                    // co-op: the party is seen when its best-seen player is
+                    // (`coop::combat_live::party_detection`)
+                    let (_, best) = crate::coop::combat_live::party_detection(self.order, s, who)?;
+                    flag(best > crate::detection::SEEN)
                 } else {
                     flag(self.detection(who, other)? > crate::detection::SEEN)
                 }
@@ -4158,17 +4166,33 @@ impl<'a> Runner<'a> {
             "ShowMessage" => {
                 let values: Vec<f64> = args.iter().skip(1).map(Value::number).collect();
                 self.message(arg(0).form(), &values);
+                // co-op host: a box a consent row lists is put to the party
+                let owner = self.message_owner();
+                crate::coop::campaign::consent::box_shown(
+                    self.order,
+                    self.state,
+                    arg(0).form(),
+                    owner,
+                );
             }
             // `005b4a80`: the button only for the owner the box was shown
             // by; anyone else gets -1 and the button stays for the owner.
             "GetButtonPressed" => {
                 let mine = self.state.button_owner == Some(self.message_owner());
                 return Some(match self.state.button.filter(|&b| b >= 0 && mine) {
-                    Some(b) => {
-                        self.state.button = None;
-                        self.state.button_owner = None;
-                        f64::from(b)
-                    }
+                    // co-op host: a party box's button waits for the party
+                    Some(b) => match crate::coop::campaign::consent::box_button(self.state, b) {
+                        crate::coop::campaign::consent::Press::Give => {
+                            self.state.button = None;
+                            self.state.button_owner = None;
+                            f64::from(b)
+                        }
+                        crate::coop::campaign::consent::Press::Hold => -1.0,
+                        crate::coop::campaign::consent::Press::Drop => {
+                            self.state.button = None;
+                            -1.0
+                        }
+                    },
                     None => -1.0,
                 });
             }
@@ -4440,6 +4464,8 @@ impl<'a> Runner<'a> {
                 self.state
                     .faction_relations
                     .insert((b, a), code(arg(3).number()));
+                self.state.emit(Domain::FactionRelation, a);
+                self.state.emit(Domain::FactionRelation, b);
             }
             "AddToFaction" | "SetFactionRank" => {
                 let who = target?;
@@ -4447,10 +4473,12 @@ impl<'a> Runner<'a> {
                 self.state
                     .faction_changes
                     .insert((who, arg(0).form()), rank);
+                self.state.emit(Domain::Faction, who);
             }
             "RemoveFromFaction" => {
                 let who = target?;
                 self.state.faction_changes.insert((who, arg(0).form()), -1);
+                self.state.emit(Domain::Faction, who);
             }
             "StopCombat" => {
                 self.state.combat.remove(&target?);
@@ -4506,11 +4534,17 @@ impl<'a> Runner<'a> {
             }
             "StartConversation" | "SayTo" => {
                 let speaker = target?;
-                events.push(Event::Talk {
+                let (to, topic) = (
+                    arg(0).form(),
+                    args.get(1).map(Value::form).filter(|f| f.0 != 0),
+                );
+                let conversation = name == "StartConversation";
+                self.state.coop_talk(speaker, to, topic, conversation);
+                self.state.events.push(Event::Talk {
                     speaker,
-                    to: arg(0).form(),
-                    topic: args.get(1).map(Value::form).filter(|f| f.0 != 0),
-                    conversation: name == "StartConversation",
+                    to,
+                    topic,
+                    conversation,
                 });
             }
             "DisablePlayerControls" | "EnablePlayerControls" => {
@@ -4549,8 +4583,11 @@ impl<'a> Runner<'a> {
                 let what = target?;
                 let to = arg(0).form();
                 let (space, cell, mut position, heading) = self.state.place(self.order, to)?;
+                let mut offset = false;
                 for (i, p) in position.iter_mut().enumerate() {
-                    *p += arg(i + 1).number() as f32;
+                    let d = arg(i + 1).number() as f32;
+                    offset |= d != 0.0;
+                    *p += d;
                 }
                 if what == PLAYER_REF {
                     self.state.coop_script_moved(to, cell);
@@ -4562,7 +4599,11 @@ impl<'a> Runner<'a> {
                     self.state.spaces.insert(what, (space, cell));
                     self.state.positions.insert(what, (position, heading));
                 }
-                self.state.events.push(Event::MoveTo { what, to });
+                self.state.events.push(Event::MoveTo {
+                    what,
+                    to,
+                    at: offset.then_some(position),
+                });
             }
             "SetQuestDelay" => {
                 self.state
@@ -4577,6 +4618,8 @@ impl<'a> Runner<'a> {
                     self.state.modifiers.push(m);
                 }
                 events.push(Event::ImageSpace(m, on));
+                self.state
+                    .coop_present(coop_core::scene::Cue::ImageSpace { form: m.0, on });
             }
             "ForceWeather" | "SetWeather" => {
                 let hour = self
@@ -4618,7 +4661,12 @@ impl<'a> Runner<'a> {
                 }
                 events.push(Event::Video(video));
             }
-            "PlayMusic" => events.push(Event::Music(arg(0).form())),
+            "PlayMusic" => {
+                let form = arg(0).form();
+                events.push(Event::Music(form));
+                self.state
+                    .coop_present(coop_core::scene::Cue::Music { form: form.0 });
+            }
             // `005d0760`: knocked out (life state 3, `008ace10`) after
             // stopping their own fight (actor vtable +0x434 with no target,
             // the call `StopCombatAlarmOnActor` makes per attacker); woken
@@ -4677,9 +4725,11 @@ impl<'a> Runner<'a> {
             // stops (`world::crime`).
             "SetPCEnemyofFaction" => {
                 self.state.crime_enemies.insert(arg(0).form());
+                self.state.emit(Domain::Crime, arg(0).form());
             }
             "ClearFactionPlayerEnemyFlag" => {
                 self.state.crime_enemies.remove(&arg(0).form());
+                self.state.emit(Domain::Crime, arg(0).form());
             }
             // Always the player's, whoever it's called on (`005d51a0`).
             "RewardKarma" => {
@@ -4741,7 +4791,12 @@ impl<'a> Runner<'a> {
                 }
             }
             "ClearScreenSplatter" => {}
-            "PlaySound" | "PlaySound3D" => events.push(Event::Sound(arg(0).form())),
+            "PlaySound" | "PlaySound3D" => {
+                let form = arg(0).form();
+                events.push(Event::Sound(form));
+                self.state
+                    .coop_present(coop_core::scene::Cue::Sound { form: form.0 });
+            }
             "Activate" => {
                 let what = target?;
                 let by = args.first().map(Value::form);

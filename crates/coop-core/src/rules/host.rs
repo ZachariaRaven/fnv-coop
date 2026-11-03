@@ -55,6 +55,16 @@ pub enum RulesEvent {
     },
     /// A vote finished.
     Vote(VoteOutcome),
+    /// A player's cast counted on an open vote (the host's game mirrors the
+    /// casts of a consent vote into its own decision).
+    Cast {
+        /// Vote id.
+        id: u32,
+        /// Who voted.
+        player: PlayerId,
+        /// Yes or no.
+        yes: bool,
+    },
     /// Fast travel needs no vote: just do it.
     FreeTravel {
         /// Traveller.
@@ -85,6 +95,12 @@ pub struct RulesHost {
     pub tether_votes_fast_travel: bool,
     /// Set by the game: the party is in combat.
     pub in_combat: bool,
+    /// Set by the game: a story row locks fast travel, so the host refuses
+    /// every player's trip (a guest's game does not know the row).
+    pub fast_travel_locked: bool,
+    /// The host's friendly-fire choice, announced with the scaling (the
+    /// combat vitals apply it).
+    pub friendly_fire: bool,
     barriers: BTreeMap<u32, Barrier>,
     next_barrier: u32,
     party: Vec<PlayerId>,
@@ -104,6 +120,8 @@ impl RulesHost {
             rewards: RewardLedger::new(),
             tether_votes_fast_travel: false,
             in_combat: false,
+            fast_travel_locked: false,
+            friendly_fire: false,
             barriers: BTreeMap::new(),
             next_barrier: 1,
             party: Vec::new(),
@@ -115,6 +133,14 @@ impl RulesHost {
     /// The campaign mode.
     pub fn mode(&self) -> Mode {
         self.mode
+    }
+
+    /// The host chose the campaign mode (the launcher or viewer flag, a
+    /// loaded party save). The scaling for the current party is in force at
+    /// once. The next scaling announcement tells the clients.
+    pub fn set_mode(&mut self, mode: Mode) {
+        self.mode = mode;
+        self.ramp = Ramp::new(mode, (self.party.len() as u32).max(1));
     }
 
     /// The scaling announcement for the current party (a host may repeat it:
@@ -145,6 +171,7 @@ impl RulesHost {
             RulesMsg::ScalingSet {
                 players: n.min(255) as u8,
                 mode: self.mode,
+                friendly_fire: self.friendly_fire,
             },
         )
     }
@@ -265,6 +292,14 @@ impl RulesHost {
         }
     }
 
+    /// The host's game decided an open consent vote: everyone is told.
+    pub fn settle_vote(&mut self, id: u32, approved: bool) -> Vec<ROut> {
+        match self.votes.settle(id, approved) {
+            Some(o) => self.vote_out(o),
+            None => vec![],
+        }
+    }
+
     fn vote_out(&mut self, o: VoteOutcome) -> Vec<ROut> {
         self.events.push(RulesEvent::Vote(o));
         vec![out(
@@ -342,6 +377,18 @@ impl RulesHost {
                 self.settle_barrier(id)
             }
             RulesMsg::VoteRequest { kind, param } => {
+                if kind == VoteKind::FastTravel && self.fast_travel_locked {
+                    // the story locks fast travel: no vote, no trip
+                    return vec![out(
+                        Audience::To(from),
+                        RulesMsg::VoteResult {
+                            id: 0,
+                            kind,
+                            param,
+                            approved: false,
+                        },
+                    )];
+                }
                 let (p, outcome) = self.votes.propose(
                     from,
                     kind,
@@ -395,10 +442,19 @@ impl RulesHost {
                     }
                 }
             }
-            RulesMsg::VoteCast { id, yes } => match self.votes.cast(from, id, yes) {
-                Some(o) => self.vote_out(o),
-                None => vec![],
-            },
+            RulesMsg::VoteCast { id, yes } => {
+                if self.votes.accepts(from, id) {
+                    self.events.push(RulesEvent::Cast {
+                        id,
+                        player: from,
+                        yes,
+                    });
+                }
+                match self.votes.cast(from, id, yes) {
+                    Some(o) => self.vote_out(o),
+                    None => vec![],
+                }
+            }
             RulesMsg::ReportDown { revivable } => {
                 let ev = self.revive.set_down(from, now_ms, revivable);
                 ev.into_iter().flat_map(|e| self.revive_out(e)).collect()
@@ -605,6 +661,49 @@ mod tests {
                 approved: false,
                 ..
             }
+        ));
+    }
+
+    #[test]
+    fn a_story_lock_refuses_fast_travel_with_or_without_a_tether() {
+        let mut r = rules();
+        r.fast_travel_locked = true;
+        for tether in [false, true] {
+            r.tether_votes_fast_travel = tether;
+            let o = r.on_msg(
+                B,
+                RulesMsg::VoteRequest {
+                    kind: VoteKind::FastTravel,
+                    param: 3,
+                },
+                0,
+                &near,
+            );
+            assert_eq!(o.len(), 1, "no vote opens");
+            assert!(matches!(
+                o[0].msg,
+                RulesMsg::VoteResult {
+                    approved: false,
+                    param: 3,
+                    ..
+                }
+            ));
+            assert!(matches!(o[0].aud, Audience::To(p) if p == B));
+        }
+        r.fast_travel_locked = false;
+        r.tether_votes_fast_travel = false;
+        let o = r.on_msg(
+            B,
+            RulesMsg::VoteRequest {
+                kind: VoteKind::FastTravel,
+                param: 3,
+            },
+            0,
+            &near,
+        );
+        assert!(matches!(
+            o[0].msg,
+            RulesMsg::VoteResult { approved: true, .. }
         ));
     }
 

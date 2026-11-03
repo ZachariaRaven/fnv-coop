@@ -127,6 +127,80 @@ impl GuestSidecar {
     }
 }
 
+/// The host's campaign rules: the difficulty mode and friendly fire. The
+/// launcher and viewer flags choose them, and the party save keeps them
+/// (manifest line `rules=MODE on|off`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PartyRules {
+    /// Normal or Co-op balanced.
+    pub mode: coop_core::rules::Mode,
+    /// Players' hits on other players count.
+    pub friendly_fire: bool,
+}
+
+impl Default for PartyRules {
+    /// Co-op balanced, friendly fire off (a session without a choice).
+    fn default() -> Self {
+        PartyRules {
+            mode: coop_core::rules::Mode::CoopBalanced,
+            friendly_fire: false,
+        }
+    }
+}
+
+impl PartyRules {
+    /// `normal` or `balanced` (the flag's word).
+    pub fn mode_name(&self) -> &'static str {
+        match self.mode {
+            coop_core::rules::Mode::Normal => "normal",
+            coop_core::rules::Mode::CoopBalanced => "balanced",
+        }
+    }
+
+    /// `on` or `off` (the flag's word).
+    pub fn friendly_fire_name(&self) -> &'static str {
+        if self.friendly_fire {
+            "on"
+        } else {
+            "off"
+        }
+    }
+
+    /// A mode word: `normal` or `balanced`.
+    pub fn parse_mode(s: &str) -> Option<coop_core::rules::Mode> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "normal" => Some(coop_core::rules::Mode::Normal),
+            "balanced" | "coop-balanced" | "coop_balanced" => {
+                Some(coop_core::rules::Mode::CoopBalanced)
+            }
+            _ => None,
+        }
+    }
+
+    /// A switch word: `on` or `off`.
+    pub fn parse_switch(s: &str) -> Option<bool> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "on" => Some(true),
+            "off" => Some(false),
+            _ => None,
+        }
+    }
+
+    /// The manifest value: `MODE on|off`.
+    fn text(&self) -> String {
+        format!("{} {}", self.mode_name(), self.friendly_fire_name())
+    }
+
+    /// Reads the manifest value.
+    fn parse(s: &str) -> Option<PartyRules> {
+        let mut w = s.split_whitespace();
+        Some(PartyRules {
+            mode: Self::parse_mode(w.next()?)?,
+            friendly_fire: Self::parse_switch(w.next()?)?,
+        })
+    }
+}
+
 /// A whole party save.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PartySave {
@@ -142,6 +216,8 @@ pub struct PartySave {
     pub world_text: String,
     /// One per guest, ordered by key.
     pub guests: Vec<GuestSidecar>,
+    /// The host's campaign rules (a save without the line: the default).
+    pub rules: PartyRules,
 }
 
 /// What can go wrong with a party save.
@@ -383,6 +459,8 @@ fn manifest_text(save: &PartySave, world: &[u8], sides: &[(u64, Vec<u8>)]) -> St
             clean_line(&g.name)
         ));
     }
+    // after the pinned lines the launcher reads (it skips keys it does not know)
+    t.push_str(&format!("rules={}\n", save.rules.text()));
     t
 }
 
@@ -511,6 +589,7 @@ struct Manifest {
     world_len: usize,
     world_hash: u64,
     guests: Vec<Listed>,
+    rules: PartyRules,
 }
 
 fn parse_manifest(text: &str) -> Result<Manifest, PartyError> {
@@ -530,6 +609,7 @@ fn parse_manifest(text: &str) -> Result<Manifest, PartyError> {
     let (mut campaign, mut host, mut seq, mut saved) = (None, String::new(), 0u32, 0u64);
     let mut world = None;
     let mut guests = Vec::new();
+    let mut rules = PartyRules::default();
     for l in lines {
         let Some((k, v)) = l.split_once('=') else {
             continue;
@@ -539,6 +619,7 @@ fn parse_manifest(text: &str) -> Result<Manifest, PartyError> {
             "host" => host = v.to_string(),
             "seq" => seq = v.parse().map_err(|_| bad("seq"))?,
             "saved" => saved = v.parse().map_err(|_| bad("saved"))?,
+            "rules" => rules = PartyRules::parse(v).ok_or_else(|| bad("rules"))?,
             "world" => {
                 let mut w = v.split_whitespace();
                 let len = w
@@ -592,6 +673,7 @@ fn parse_manifest(text: &str) -> Result<Manifest, PartyError> {
         world_len,
         world_hash,
         guests,
+        rules,
     })
 }
 
@@ -675,6 +757,7 @@ pub fn load_party(dir: &Path) -> Result<LoadedParty, PartyError> {
         saved_unix: m.info.saved_unix,
         world_text,
         guests,
+        rules: m.rules,
     };
     let dropped = save.scrub();
     if dropped > 0 {
@@ -714,6 +797,10 @@ mod tests {
                 GuestSidecar::from_shadow(2, "Bo", 2, true, &shadow(7, 40)),
                 GuestSidecar::from_shadow(1, "Ann", 1, false, &shadow(3, 9)),
             ],
+            rules: PartyRules {
+                mode: coop_core::rules::Mode::Normal,
+                friendly_fire: true,
+            },
         }
     }
 
@@ -891,6 +978,24 @@ mod tests {
             (g[0], g[1], g[2], g[3], g[6]),
             ("0000000000000001", "1", "3", "0", "Ann")
         );
+    }
+
+    #[test]
+    fn the_rules_line_round_trips_and_an_older_save_gets_the_default() {
+        let d = tmp("rules");
+        let p = d.join("Save 1.txt.partysave");
+        write_party(&p, &sample()).unwrap();
+        let t = fs::read_to_string(p.join(MANIFEST)).unwrap();
+        assert!(t.lines().any(|l| l == "rules=normal on"), "{t}");
+        assert_eq!(load_party(&p).unwrap().save.rules, sample().rules);
+        // a save written before the rules line
+        let old: String = t
+            .lines()
+            .filter(|l| !l.starts_with("rules="))
+            .map(|l| format!("{l}\n"))
+            .collect();
+        fs::write(p.join(MANIFEST), old).unwrap();
+        assert_eq!(load_party(&p).unwrap().save.rules, PartyRules::default());
     }
 
     #[test]

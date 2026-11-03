@@ -331,6 +331,37 @@ fn set_var(gs: &mut GameState, owner: FormId, index: usize, value: f64, ctx: Opt
     gs.coop.campaign.unnamed_vars |= invented;
 }
 
+/// Faction relations and crime (`export::export_factions_crime`).
+fn factions_crime(gs: &mut GameState, form: FormId, t: u16, data: &[u8]) {
+    let word = |o: usize| {
+        data.get(o..o + 4)
+            .map_or(0, |b| u32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+    };
+    match t {
+        tag::RELATION => {
+            gs.faction_relations.retain(|(a, _), _| *a != form);
+            for c in data.chunks_exact(5) {
+                let other = u32::from_le_bytes([c[0], c[1], c[2], c[3]]);
+                gs.faction_relations.insert((form, FormId(other)), c[4]);
+            }
+        }
+        tag::CRIME => {
+            if data.len() >= 9 {
+                gs.faction_crimes.insert(form, (word(0), word(4)));
+                set_in(&mut gs.crime_enemies, form, data[8] != 0);
+            } else {
+                gs.faction_crimes.remove(&form);
+                gs.crime_enemies.remove(&form);
+            }
+        }
+        _ => {
+            gs.player_crimes = (word(0), word(4));
+            gs.steal_warnings = word(8);
+            gs.player_murderer = data.get(12).is_some_and(|b| *b != 0);
+        }
+    }
+}
+
 fn custom(gs: &mut GameState, form: FormId, t: u16, f: Option<&Field>) {
     let data: &[u8] = match f {
         Some(Field::Custom { data, .. }) => data,
@@ -358,7 +389,13 @@ fn custom(gs: &mut GameState, form: FormId, t: u16, f: Option<&Field>) {
             }
         }
         tag::STOCKED => set_in(&mut gs.stocked, form, on),
-        tag::MARKER => set_in(&mut gs.map_markers, form, on),
+        tag::MARKER => {
+            // bit 1 revealed, bit 2 found (`export`)
+            let bits = data.first().copied().unwrap_or(0);
+            set_in(&mut gs.map_markers, form, bits & 1 != 0);
+            set_in(&mut gs.discovered, form, bits & 2 != 0);
+        }
+        tag::RELATION | tag::CRIME | tag::PLAYER_CRIME => factions_crime(gs, form, t, data),
         tag::PERK => {
             gs.perk_ranks.remove(&form);
             set_in(&mut gs.perks, form, on);

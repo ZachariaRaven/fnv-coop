@@ -30,6 +30,8 @@ Usage:
         output to the launcher log and exits with the viewer's exit code.
   nv-launcher --coop-help          list the viewer's co-op flags (asks the viewer)
         --allow-mismatch   developer override: let a guest with other plugins or game version in
+        --difficulty MODE (normal|balanced)  --friendly-fire on|off
+                           host: campaign rules (default balanced, off), kept in the party save
         --voice MODE (off|ptt|vad)  --ptt-key KEY  --ping-key KEY
         --couch SEAT/PLAYERS  --window X,Y,W,H  --gamepad N   split-screen on one PC (docs/COOP-COUCH.md)
   nv-launcher --diagnostics        collect shareable logs into a folder and print its path
@@ -101,6 +103,13 @@ pub fn parse(args: &[String]) -> Result<Cli, String> {
             "--address" => c.address = Some(take(args, &mut i, a)?),
             "--save" => c.save = Some(take(args, &mut i, a)?.into()),
             "--allow-mismatch" => c.extras.allow_mismatch = true,
+            "--difficulty" => {
+                c.extras.difficulty =
+                    Some(crate::extras::Difficulty::parse(&take(args, &mut i, a)?)?)
+            }
+            "--friendly-fire" => {
+                c.extras.friendly_fire = Some(crate::extras::parse_switch(&take(args, &mut i, a)?)?)
+            }
             "--voice" => {
                 c.extras.voice = Some(crate::extras::VoiceMode::parse(&take(args, &mut i, a)?)?)
             }
@@ -231,7 +240,8 @@ pub fn make_plan(i: &LaunchInput) -> Result<Launch, String> {
             }
             JoinInput::SteamFriend if !i.steam => return Err(STEAM_NEEDED.into()),
             JoinInput::SteamFriend => Mode::JoinFriend,
-            JoinInput::Code { .. } => Mode::Join {
+            // a short code the viewer resolves itself (the join service named by NVRS_JOIN_SERVICE)
+            JoinInput::Code { .. } | JoinInput::Short(_) => Mode::Join {
                 addr: j.viewer_arg().to_string(),
             },
         };
@@ -745,6 +755,26 @@ v-viewer.exe"
         )
         .unwrap();
         assert!(!plain.contains("--coop-allow-mismatch") && !plain.contains("--coop-couch"));
+        assert!(!plain.contains("--coop-difficulty") && !plain.contains("--coop-friendly-fire"));
+    }
+
+    #[test]
+    fn the_host_rules_reach_the_viewer_command() {
+        let c = parse(&v(&[
+            "--print-command",
+            "host",
+            "--viewer",
+            "v.exe",
+            "--difficulty",
+            "normal",
+            "--friendly-fire",
+            "on",
+        ]))
+        .unwrap();
+        let t = print_command(&c, settings(), Path::new("h"), Path::new("."), [2; 8]).unwrap();
+        assert!(t.contains("--coop-difficulty normal --coop-friendly-fire on"), "{t}");
+        assert!(parse(&v(&["--difficulty", "hard"])).is_err());
+        assert!(parse(&v(&["--friendly-fire", "maybe"])).is_err());
     }
 
     #[test]

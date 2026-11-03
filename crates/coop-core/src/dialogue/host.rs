@@ -75,6 +75,31 @@ impl DialogueHost {
         self.talking.get(&p).copied()
     }
 
+    /// The NPC of an open session.
+    pub fn npc_of(&self, session: u32) -> Option<FormId> {
+        self.sessions.get(&session).map(|s| s.npc)
+    }
+
+    /// The game refused a pick (the line's conditions fail for the picker).
+    /// The step stays open, no script runs, and only the picker is told.
+    /// A pick the table would ignore anyway gets no answer.
+    pub fn refuse(&mut self, from: PlayerId, session: u32, step: u32, choice: u32) -> Vec<DOut> {
+        let open = self.sessions.get(&session).is_some_and(|s| {
+            s.initiator == from && s.playing.is_none() && step == s.step + 1
+        });
+        if !open {
+            return vec![];
+        }
+        vec![out(
+            Audience::To(from),
+            DialogueMsg::Refused {
+                session,
+                step,
+                choice,
+            },
+        )]
+    }
+
     /// Updates the NPC combat flag used to deny new sessions.
     pub fn set_in_combat(&mut self, npc: FormId, v: bool) {
         if v {
@@ -688,5 +713,49 @@ mod tests {
             }
         ));
         assert!(h.npc_died(NPC).is_empty());
+    }
+
+    #[test]
+    fn a_refused_pick_tells_only_the_picker_and_keeps_the_step_open() {
+        let mut h = DialogueHost::new();
+        let s = started(&mut h, A);
+        assert_eq!(h.npc_of(s), Some(NPC));
+        let o = h.refuse(A, s, 1, 9);
+        assert_eq!(o.len(), 1);
+        assert_eq!(o[0].aud, Audience::To(A));
+        assert!(matches!(
+            o[0].msg,
+            DialogueMsg::Refused {
+                step: 1,
+                choice: 9,
+                ..
+            }
+        ));
+        // nothing ran, and the same step can still be picked
+        assert!(h.take_events().is_empty());
+        let pick = DialogueMsg::Pick {
+            session: s,
+            step: 1,
+            choice: 8,
+        };
+        assert!(matches!(
+            h.on_msg(A, pick, 5, &ALL)[0].msg,
+            DialogueMsg::Picked { choice: 8, .. }
+        ));
+        // a spectator, a wrong step or a step in play gets no answer
+        assert!(h.refuse(B, s, 2, 9).is_empty());
+        assert!(h.refuse(A, s, 2, 9).is_empty());
+        let mut c = super::super::DialogueClient::new(A);
+        c.on_msg(
+            DialogueMsg::Started {
+                session: s,
+                npc: NPC,
+                initiator: A,
+                req: 1,
+            },
+            0,
+        );
+        c.on_msg(o[0].msg.clone(), 1);
+        assert_eq!((c.refused, c.last_refused), (1, Some((s, 9))));
     }
 }

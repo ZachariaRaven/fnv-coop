@@ -58,7 +58,15 @@ pub struct DownTracker {
     pub warped: Vec<u8>,
     /// Joiners refused while a scene played.
     pub refused: Vec<u8>,
+    /// Downs of other players the host decided (a script run as that player):
+    /// (slot, revivable). The host adapter reports them to the live rules.
+    pub to_live: Vec<(u8, bool)>,
+    /// How many of the live rules' events [`mirror_rules`] has read.
+    pub rules_seen: usize,
 }
+
+/// The host's own slot.
+const HOST_SLOT: u8 = 0;
 
 fn table(gs: &GameState) -> Option<std::sync::Arc<coop_policy::PolicyTable>> {
     gs.coop.gate.as_ref().map(|g| g.table_arc())
@@ -95,8 +103,30 @@ pub fn player_down(gs: &mut GameState, slot: u8, quest: Option<FormId>) -> Optio
     Some(out)
 }
 
-/// A teammate revived `slot`.
+/// A teammate revived `slot`. A down the policy holds until a checkpoint (a
+/// Dead Money collar death) cannot be revived: false, and nothing changes.
 pub fn revive(gs: &mut GameState, slot: u8) -> bool {
+    if held(gs, slot) {
+        return false;
+    }
+    stand_up(gs, slot)
+}
+
+/// True when `slot` is down until the party reaches a checkpoint.
+pub fn held(gs: &GameState, slot: u8) -> bool {
+    matches!(
+        gs.coop.campaign.down.down.get(&slot).map(|d| &d.outcome),
+        Some(DownOutcome::UntilCheckpoint { .. })
+    )
+}
+
+/// False when `slot` is down and no teammate may revive it.
+pub fn revivable(gs: &GameState, slot: u8) -> bool {
+    !held(gs, slot)
+}
+
+/// `slot` stands up where it lies (a revive, or a checkpoint reached).
+fn stand_up(gs: &mut GameState, slot: u8) -> bool {
     let was = gs.coop.campaign.down.down.remove(&slot).is_some();
     if was {
         gs.coop.campaign.down.revived.push(slot);
@@ -104,8 +134,83 @@ pub fn revive(gs: &mut GameState, slot: u8) -> bool {
             g.damage.remove(&crate::dialogue::PLAYER_REF);
             g.dead.remove(&crate::dialogue::PLAYER_REF);
         });
+        if slot == HOST_SLOT && gs.coop.authority == crate::coop::Authority::Host {
+            gs.coop.live.downed = false;
+        }
     }
     was
+}
+
+/// The local player's health ran out (a hit, a script's `KillActor`). On the
+/// host inside another player's scope (a script run as that player) it is
+/// that player's down, decided here. Otherwise the local player goes down and
+/// the quest whose script did it decides how (the rules bridge reports it).
+pub fn health_out(gs: &mut GameState) {
+    let quest = gs.coop.campaign.cond_quest;
+    let slot = gs.active_slot();
+    if gs.coop.authority == crate::coop::Authority::Host
+        && slot != HOST_SLOT
+        && gs.coop.bank.enabled()
+    {
+        script_down(gs, slot, quest);
+        return;
+    }
+    gs.coop.live.down_pending = true;
+    gs.coop.campaign.down_quest = quest;
+}
+
+/// Host: a script run as `slot` (a collar's explosion, a `KillActor` on that
+/// player) put it down, under `quest`'s row if any. The campaign rules decide
+/// the outcome, and the live rules hear of the down (revivable or not).
+pub fn script_down(gs: &mut GameState, slot: u8, quest: Option<FormId>) -> Option<DownOutcome> {
+    if slot == HOST_SLOT {
+        gs.coop.live.down_pending = true;
+        gs.coop.campaign.down_quest = quest;
+        return None;
+    }
+    if gs.coop.campaign.down.down.contains_key(&slot) {
+        return None;
+    }
+    let out = player_down(gs, slot, quest)?;
+    match out {
+        DownOutcome::Downed { .. } => gs.coop.campaign.down.to_live.push((slot, true)),
+        DownOutcome::UntilCheckpoint { .. } => gs.coop.campaign.down.to_live.push((slot, false)),
+        DownOutcome::Die | DownOutcome::Respawn => {}
+    }
+    Some(out)
+}
+
+/// Host: the live rules' revive events (a teammate's hold to revive, the
+/// window's respawn, a guest's own report of a down) reach the campaign
+/// tracker for every slot. `events` is the rules bridge's list. The host's
+/// own downs are mirrored from its down flags in [`super::host_frame`].
+pub fn mirror_rules(gs: &mut GameState, events: &[coop_core::rules::RulesEvent]) {
+    use coop_core::rules::{ReviveEvent, RulesEvent};
+    let seen = gs.coop.campaign.down.rules_seen;
+    let from = if seen > events.len() { 0 } else { seen };
+    gs.coop.campaign.down.rules_seen = events.len();
+    for e in &events[from..] {
+        let RulesEvent::Revive(r) = e else {
+            continue;
+        };
+        match *r {
+            ReviveEvent::Downed(p)
+                if p.0 != HOST_SLOT && !gs.coop.campaign.down.down.contains_key(&p.0) =>
+            {
+                player_down(gs, p.0, None);
+            }
+            ReviveEvent::Revived { player, .. } => {
+                revive(gs, player.0);
+            }
+            // the live window ran out; a down held until a checkpoint stays down
+            ReviveEvent::Respawn(p)
+                if gs.coop.campaign.down.down.contains_key(&p.0) && !held(gs, p.0) =>
+            {
+                respawn(gs, p.0);
+            }
+            _ => {}
+        }
+    }
 }
 
 /// Puts `slot` back at the checkpoint with its health.
@@ -194,7 +299,7 @@ pub fn frame(order: &LoadOrder, gs: &mut GameState, dt: f32) {
             .filter_map(|c| resolve(order, c))
             .any(|c| Some(c) == here)
         {
-            revive(gs, slot);
+            stand_up(gs, slot);
         }
     }
     // revive window ran out: back at the checkpoint

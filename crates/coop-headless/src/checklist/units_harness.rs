@@ -449,6 +449,8 @@ fn couch_split_screen(_env: &Env, mutate: bool) -> Result<String, String> {
                 voice: None,
                 ptt_key: None,
                 ping_key: None,
+                difficulty: None,
+                friendly_fire: None,
             }
             .args();
             let has = |k: &str, v: &str| a.windows(2).any(|w| w[0] == k && w[1] == v);

@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use super::difficulty::Scaling;
+use super::difficulty::{Mode, Scaling};
 use super::{CancelReason, RulesMsg, VoteKind};
 use crate::ids::PlayerId;
 
@@ -70,11 +70,20 @@ pub struct RulesClient {
     pub reviving: Vec<(PlayerId, PlayerId)>,
     /// Latest host scaling.
     pub scaling: Scaling,
+    /// The host's campaign mode (`None` until the first scaling announcement).
+    pub mode: Option<Mode>,
+    /// The host's friendly-fire choice, from the same announcement.
+    pub friendly_fire: bool,
     /// Pending notices for the game.
     pub notices: Vec<Notice>,
 }
 
 impl RulesClient {
+    /// The player this client belongs to.
+    pub fn me(&self) -> PlayerId {
+        self.me
+    }
+
     /// A client for player `me`.
     pub fn new(me: PlayerId) -> Self {
         RulesClient {
@@ -83,6 +92,8 @@ impl RulesClient {
             downed: BTreeSet::new(),
             reviving: Vec::new(),
             scaling: Scaling::NEUTRAL,
+            mode: None,
+            friendly_fire: false,
             notices: Vec::new(),
         }
     }
@@ -184,8 +195,14 @@ impl RulesClient {
                 }
             }
             RulesMsg::Wipe => self.notices.push(Notice::Wipe),
-            RulesMsg::ScalingSet { players, mode } => {
-                self.scaling = Scaling::for_party(players as u32, mode)
+            RulesMsg::ScalingSet {
+                players,
+                mode,
+                friendly_fire,
+            } => {
+                self.scaling = Scaling::for_party(players as u32, mode);
+                self.mode = Some(mode);
+                self.friendly_fire = friendly_fire;
             }
             _ => {}
         }

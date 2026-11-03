@@ -202,10 +202,14 @@ pub fn open(role: Role, name: &str, addr: &str) -> Result<(Box<dyn Transport>, L
                         _ => return Err(Error::Target("this join code names a Steam lobby; this build joins by address".into())),
                     }
                 }
-                crate::target::JoinTarget::Code(_) => {
-                    return Err(Error::Target(
-                        "short join codes need the join service, which this build does not call; use HOST:PORT or an NVRS- code".into(),
-                    ))
+                crate::target::JoinTarget::Code(c) => {
+                    // the join service the environment names resolves it to an NVRS- code
+                    let req = crate::link::LinkRequest::new(role, name, addr);
+                    let code = crate::link::resolve_short_code(&req, &c)?;
+                    match code.target {
+                        NetTarget::Direct(a) => (a, code.token),
+                        _ => return Err(Error::Target("this join code names a Steam lobby; this build joins by address".into())),
+                    }
                 }
             };
             let b = UdpBackend::guest(target, token, UdpConfig::default()).map_err(io)?;

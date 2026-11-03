@@ -77,6 +77,10 @@ pub struct SessionConfig {
     /// Executable version, volatile-key hash, plugin list and the
     /// `--coop-allow-mismatch` override (see `coop_core::compat`).
     pub compat: CompatConfig,
+    /// Host: the campaign rules the launcher or viewer flags chose
+    /// (`--coop-difficulty`, `--coop-friendly-fire`). `None`: a loaded
+    /// party save's rules, else Co-op balanced with friendly fire off.
+    pub rules: Option<world::coop::party_save::PartyRules>,
 }
 
 /// What a peer tells the handshake about its game, plus the host policy.
@@ -112,6 +116,7 @@ impl Default for SessionConfig {
             no_policy: false,
             native_dialogue: false,
             compat: CompatConfig::default(),
+            rules: None,
         }
     }
 }
@@ -222,6 +227,16 @@ pub struct Status {
 }
 
 impl Status {
+    /// Players in the session, this one included (a host's `peers` list
+    /// holds the host itself, a guest's does not).
+    pub fn players(&self) -> usize {
+        if self.role == Role::Host {
+            self.peers.len()
+        } else {
+            self.peers.len() + 1
+        }
+    }
+
     /// The small indicator: players and ping, nothing else.
     pub fn compact(&self) -> String {
         let warn = if self.desync { " !" } else { "" };
@@ -234,20 +249,26 @@ impl Status {
                     .map(|p| p.rtt_ms)
                     .max();
                 let ping = worst.map_or(String::new(), |r| format!(" {r} ms"));
-                format!("{}P{ping}{warn}", self.peers.len() + 1)
+                format!("{}P{ping}{warn}", self.players())
             }
             (_, State::Connecting | State::Joining | State::Reconnecting) => "...".into(),
             (_, State::Rejected(_)) => "refused".into(),
             _ => {
                 let ping = self.rtt_ms.map_or("-".to_string(), |r| format!("{r} ms"));
-                format!("{}P {ping}{warn}", self.peers.len() + 1)
+                format!("{}P {ping}{warn}", self.players())
             }
         }
     }
 
     /// One line for the HUD.
     pub fn line(&self) -> String {
-        let warn = if self.desync { " | DESYNC" } else { "" };
+        let desync = if self.desync { " | DESYNC" } else { "" };
+        // the desync dashboard's repair count, once there is one
+        let warn = match self.repairs {
+            0 => desync.to_string(),
+            1 => format!(" | 1 repair{desync}"),
+            n => format!(" | {n} repairs{desync}"),
+        };
         match (self.role, self.state) {
             (Role::Host, _) => {
                 let n = self.peers.iter().filter(|p| !p.player.is_host()).count();
@@ -278,7 +299,7 @@ impl Status {
                 let ping = self.rtt_ms.map_or("-".to_string(), |r| format!("{r} ms"));
                 format!(
                     "CO-OP guest | ping {ping} | {} in session{warn}",
-                    self.peers.len() + 1
+                    self.players()
                 )
             }
         }
@@ -356,6 +377,8 @@ pub struct Session {
     pub(crate) live: Option<crate::live::Layer>,
     pub(crate) start: crate::start::StartSide,
     pub(crate) party: Option<Box<crate::party::PartyLayer>>,
+    /// Host: the flags chose the campaign rules (a loaded party save keeps them).
+    pub(crate) rules_given: bool,
 }
 
 pub(crate) fn send_msg(net: &mut Net, to: PlayerId, m: &Msg) {
@@ -462,6 +485,7 @@ impl Session {
             live: None,
             start: crate::start::StartSide::new(role),
             party: None,
+            rules_given: cfg.rules.is_some(),
         }
     }
 
@@ -476,6 +500,8 @@ impl Session {
         let mut hc = HostConfig::new(hello, id);
         hc.max_guests = cfg.max_guests;
         hc.compat.allow_mismatch = cfg.compat.allow_mismatch;
+        let rules = cfg.rules.unwrap_or_default();
+        hc.mode = rules.mode;
         let mut s = Self::blank(Role::Host, &cfg, net, log, dump);
         s.link_errors = errors;
         s.host = Some(HostSide {
@@ -487,6 +513,7 @@ impl Session {
             roster_dirty: false,
             last_roster_ms: 0,
         });
+        s.set_rules(rules);
         if cfg.live {
             s.live = Some(crate::live::Layer::new(
                 Role::Host,
@@ -643,6 +670,16 @@ impl Session {
         }
         if let Some((id, l)) = line {
             self.log_ev("cmd_sent", &[("id", V::U(id as u64)), ("line", V::S(&l))]);
+        }
+    }
+
+    /// Joins refused because the party was full. Host: the players it turned away
+    /// (`Reject(Full)`). Guest: 1 when the host refused this guest for that reason.
+    pub fn full_refusals(&self) -> u32 {
+        match (&self.host, &self.guest) {
+            (Some(h), _) => h.sync.full_refusals,
+            (_, Some(g)) => u32::from(g.sync.phase() == GuestPhase::Rejected(RejectReason::Full)),
+            _ => 0,
         }
     }
 
@@ -842,6 +879,14 @@ impl Session {
     fn on_msg(&mut self, from: PlayerId, m: Msg) {
         let now = self.now_ms;
         if let Some(h) = &mut self.host {
+            // a guest's hit request waits for the friendly-fire guard (the live frame)
+            let m = match self.live.as_mut().and_then(|l| l.host.as_mut()) {
+                Some(ad) => match ad.hold_guest_hit(from, m) {
+                    Some(m) => m,
+                    None => return,
+                },
+                None => m,
+            };
             let replies = h.sync.on_msg(from, m);
             for note in std::mem::take(&mut h.sync.compat_log) {
                 let who = format!("Player {}", note.player.0);
@@ -1423,5 +1468,45 @@ impl Session {
             );
         }
         self.log_ev("sync", &[("rev", V::U(rev)), ("root", V::S(&hex))]);
+    }
+}
+
+impl Session {
+    /// Fault injection for tests (the bot's `coop desync`): silently changes
+    /// one quest record of this guest's replicated store (same revision,
+    /// wrong value), as a garbled update would. Nothing else is touched: the
+    /// next hash exchange must find the mismatch and the host must repair it
+    /// (the status line's desync and repair counts). False on a host, or
+    /// when the store holds no quest record.
+    pub fn inject_desync(&mut self) -> bool {
+        use coop_core::schema::Field;
+        let Some(g) = self.guest.as_mut() else {
+            return false;
+        };
+        let store = &mut g.sync.store;
+        let Some(target) = store
+            .entries()
+            .into_iter()
+            .find(|e| matches!(e.field, Field::QuestStage { .. } | Field::QuestFlags { .. }))
+        else {
+            return false;
+        };
+        let mut bad = target.clone();
+        bad.field = match &target.field {
+            Field::QuestStage { stage } => Field::QuestStage {
+                stage: stage.wrapping_add(1),
+            },
+            Field::QuestFlags { flags } => Field::QuestFlags { flags: flags ^ 1 },
+            other => other.clone(),
+        };
+        let shard = coop_core::ids::shard_of(target.form);
+        let mut repl: Vec<_> = store
+            .entries_in_shards(&[shard])
+            .into_iter()
+            .filter(|e| e != &target)
+            .collect();
+        repl.push(bad);
+        store.replace_shards(&[shard], repl);
+        true
     }
 }

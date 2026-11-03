@@ -98,6 +98,27 @@ pub fn export_actor(gs: &GameState, cx: Ctx, a: FormId) -> ActorState {
     }
 }
 
+/// An actor's combat target as it goes on the wire. `PLAYER_REF` means a
+/// different player on each machine, so the owner sends its own player as
+/// the puppet form of `me`.
+fn target_out(t: u32, me: PlayerId) -> u32 {
+    if FormId(t) == PLAYER_REF {
+        puppet_of(me).0
+    } else {
+        t
+    }
+}
+
+/// A combat target from the wire: this machine's own puppet form is the
+/// local player.
+fn target_in(t: u32, me: PlayerId) -> FormId {
+    if FormId(t) == puppet_of(me) {
+        PLAYER_REF
+    } else {
+        FormId(t)
+    }
+}
+
 /// Damage to the ledger's unit: whole points, at least one.
 fn hit_points(amount: f64) -> u16 {
     amount.ceil().clamp(1.0, f64::from(MAX_HIT)) as u16
@@ -135,21 +156,123 @@ fn replay_death(cx: Ctx, gs: &mut GameState, who: FormId) {
     }
 }
 
+/// Turns a place the live layer sends (an interior cell, or outdoors the
+/// worldspace: [`space_of_player`]) back into a `GameState` place: (space,
+/// cell), the cell being the worldspace's grid cell at the position.
+/// Worldspace grids are read once and kept.
+#[derive(Default)]
+pub struct PlaceResolver {
+    grids: BTreeMap<FormId, Option<crate::WorldGrid>>,
+}
+
+impl PlaceResolver {
+    /// (space, cell) for `space` at `pos`; `None` for a form that is not a
+    /// place or a position outside the worldspace's cells.
+    pub fn resolve(
+        &mut self,
+        order: &esm::LoadOrder,
+        space: FormId,
+        pos: [f32; 3],
+    ) -> Option<(FormId, FormId)> {
+        if space.0 == 0 {
+            return None;
+        }
+        // an id the load order does not know (a test's made-up cell) is a
+        // place of its own, as the live layer files it
+        let Some(rr) = order.get(space) else {
+            return Some((space, space));
+        };
+        let kind = rr.entry.header.kind;
+        if kind.as_bytes() == b"WRLD" {
+            let grid = self
+                .grids
+                .entry(space)
+                .or_insert_with(|| crate::WorldGrid::load(order, space).ok());
+            let cell = grid.as_ref()?.cell_at(crate::square_of(pos))?;
+            return Some((space, cell));
+        }
+        if kind.as_bytes() != b"CELL" {
+            return None;
+        }
+        // an exterior grid cell sent as itself: its worldspace is the space
+        match order.world_of(&rr) {
+            Some(w) => Some((w, space)),
+            None => Some((space, space)),
+        }
+    }
+
+    /// The grid of a worldspace (read once), `None` when it cannot be read.
+    pub fn grid(&mut self, order: &esm::LoadOrder, world: FormId) -> Option<&crate::WorldGrid> {
+        self.grids
+            .entry(world)
+            .or_insert_with(|| crate::WorldGrid::load(order, world).ok())
+            .as_ref()
+    }
+}
+
 /// Publishes owned actors and applies everyone else's.
 #[derive(Default)]
 pub struct ActorPump {
     next_ms: u64,
     /// Remote state samples applied.
     pub applied: u64,
+    places: PlaceResolver,
+    /// The epoch at which this machine took each actor it owns.
+    taken: BTreeMap<coop_core::ids::FormId, coop_core::ids::Epoch>,
 }
 
 impl ActorPump {
-    /// Owned actors' states at the fixed rate.
+    /// Guest: an actor this machine now owns starts where the host's ledger
+    /// had it (the `Assign` seed). A host script that moved it (`MoveTo`)
+    /// did not move it here, and the owner must not publish the old place.
+    /// The host does not call this: its world already has every place.
+    pub fn take_over(&mut self, cx: Ctx, gs: &mut GameState, client: &ActorClient, me: PlayerId) {
+        self.taken.retain(|id, _| client.owns(*id));
+        for (id, rec) in client.iter() {
+            if rec.owner != Some(me) || self.taken.get(id) == Some(&rec.epoch) {
+                continue;
+            }
+            self.taken.insert(*id, rec.epoch);
+            let Some(st) = rec.state.filter(|s| s.cell.0 != 0) else {
+                continue;
+            };
+            let a = wf(*id);
+            let pos = [
+                dequant_pos(st.pos[0]),
+                dequant_pos(st.pos[1]),
+                dequant_pos(st.pos[2]),
+            ];
+            let Some(to) = self.places.resolve(cx.order, FormId(st.cell.0), pos) else {
+                continue;
+            };
+            gs.spaces.insert(a, to);
+            gs.positions.insert(a, (pos, dequant_heading(st.heading)));
+        }
+    }
+
+    /// The (space, cell) a published place stands for, when it is not where
+    /// this machine has the actor now.
+    fn place_of(
+        &mut self,
+        order: &esm::LoadOrder,
+        gs: &GameState,
+        a: FormId,
+        space: FormId,
+        pos: [f32; 3],
+    ) -> Option<(FormId, FormId)> {
+        let to = self.places.resolve(order, space, pos)?;
+        let now = gs.place(order, a).map(|p| (p.0, p.1));
+        (now != Some(to)).then_some(to)
+    }
+
+    /// Owned actors' states at the fixed rate. `me` is this machine's player:
+    /// a combat target on the local player goes out as `me`'s puppet form.
     pub fn publish(
         &mut self,
         cx: Ctx,
         gs: &GameState,
         client: &mut ActorClient,
+        me: PlayerId,
         now_ms: u64,
     ) -> Vec<ActorMsg> {
         if now_ms < self.next_ms {
@@ -159,7 +282,11 @@ impl ActorPump {
         client
             .owned()
             .into_iter()
-            .filter_map(|a| client.publish(a, export_actor(gs, cx, wf(a))))
+            .filter_map(|a| {
+                let mut st = export_actor(gs, cx, wf(a));
+                st.target = target_out(st.target, me);
+                client.publish(a, st)
+            })
             .collect()
     }
 
@@ -176,6 +303,10 @@ impl ActorPump {
                         dequant_pos(st.pos[1]),
                         dequant_pos(st.pos[2]),
                     ];
+                    // the owner's place for it: another cell moves it here too
+                    if let Some(sc) = self.place_of(cx.order, gs, a, FormId(st.cell.0), pos) {
+                        gs.spaces.insert(a, sc);
+                    }
                     gs.positions.insert(a, (pos, dequant_heading(st.heading)));
                     gs.coop.live.remote_anim.insert(a, st.anim);
                     match st.target {
@@ -183,7 +314,7 @@ impl ActorPump {
                             gs.combat.remove(&a);
                         }
                         t => {
-                            gs.combat.insert(a, FormId(t));
+                            gs.combat.insert(a, target_in(t, me));
                         }
                     }
                     self.applied += 1;
@@ -236,6 +367,8 @@ pub struct LiveHostAdapter {
     tracked: BTreeSet<FormId>,
     announced: BTreeSet<FormId>,
     next_loot_ms: u64,
+    /// Guest hit requests that wait for the friendly-fire guard.
+    held_hits: Vec<(PlayerId, Msg)>,
 }
 
 impl Default for LiveHostAdapter {
@@ -261,6 +394,7 @@ impl LiveHostAdapter {
             tracked: BTreeSet::new(),
             announced: BTreeSet::new(),
             next_loot_ms: 0,
+            held_hits: Vec::new(),
         }
     }
 
@@ -346,6 +480,36 @@ impl LiveHostAdapter {
         live.on_msg(PlayerId::HOST, msg, now_ms, auth)
     }
 
+    /// Takes a guest's hit request off the network before the ledger sees
+    /// it: the next [`frame`](Self::frame) runs the friendly-fire guard on
+    /// it first. Every other message comes back to the caller unchanged.
+    pub fn hold_guest_hit(&mut self, from: PlayerId, msg: Msg) -> Option<Msg> {
+        match msg {
+            Msg::Actor(ActorMsg::Hit { .. }) if !from.is_host() => {
+                self.held_hits.push((from, msg));
+                None
+            }
+            // a guest's dialogue pick waits for the line's conditions check
+            m => self.dialogue.hold_pick(from, m),
+        }
+    }
+
+    /// The guest hit requests that pass the friendly-fire guard (G40). A
+    /// guest's machine has no policy gate, and the host applies a guest's
+    /// hit as a verdict without hooks, so the guard runs here, by slot.
+    fn guarded_hits(&mut self, cx: Ctx, gs: &mut GameState) -> Vec<(PlayerId, Msg)> {
+        let mut pass = Vec::new();
+        for (from, m) in std::mem::take(&mut self.held_hits) {
+            let Msg::Actor(ActorMsg::Hit { actor, .. }) = &m else {
+                continue;
+            };
+            if super::campaign::ffguard::allow_hit(cx.order, gs, from.0, wf(*actor)) {
+                pass.push((from, m));
+            }
+        }
+        pass
+    }
+
     /// The per-frame driver. Send the returned messages.
     pub fn frame(
         &mut self,
@@ -362,9 +526,20 @@ impl LiveHostAdapter {
         self.stats.frames += 1;
         super::campaign::host_frame(cx, gs, now_ms);
         self.registry.update(live);
+        super::campaign::party::refresh_positions(gs, &self.registry);
+        // a guest's followers come along when the guest changes place
+        let places = &mut self.pump.places;
+        super::campaign::owners::follow_owners(cx.order, cx.scripts, gs, &mut |s, p| {
+            places.resolve(cx.order, s, p)
+        });
         self.own.local = avatar_of(gs, cx);
         if let Some(m) = self.own.sender.tick(now_ms, &self.own.local) {
             outs.extend(live.on_msg(PlayerId::HOST, Msg::Avatar(m), now_ms, auth));
+        }
+        // the host's own conversation needs its heartbeat too, or the host
+        // closes it (HeartbeatLost) after the last pick
+        if let Some(m) = self.own.dialogue.heartbeat(now_ms) {
+            outs.extend(live.on_msg(PlayerId::HOST, Msg::Dialogue(m), now_ms, auth));
         }
         for (kind, arg) in std::mem::take(&mut gs.coop.live.local_actions) {
             let m = self.own.action(kind, arg);
@@ -373,18 +548,55 @@ impl LiveHostAdapter {
         gs.coop.live.scaling = Some(live.rules.scaling(now_ms));
         // damage the host dealt itself goes through the one ledger
         let hurts = std::mem::take(&mut gs.coop.live.hurts);
-        for (who, amount) in coalesce(hurts) {
+        let me = gs.active_slot();
+        let (mine, npcs): (Vec<_>, Vec<_>) = hurts.into_iter().partition(|h| {
+            super::campaign::attribution::slot_of(h.by, me) == Some(me)
+                || super::campaign::owners::owner_of(gs, h.by) == Some(me)
+        });
+        // an NPC's blow (Doc Mitchell on a gecko) keeps the ledger's health but
+        // pays no player; sent first, so a same-size player hit still counts
+        for (who, amount) in coalesce(npcs) {
+            let pts = hit_points(amount);
+            let m = self.own.actors.hit(cf(who), pts);
+            self.stats.hits_sent += 1;
+            gs.coop.campaign.unattributed.push((who, pts));
+            outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
+        }
+        for (who, amount) in coalesce(mine) {
             let m = self.own.actors.hit(cf(who), hit_points(amount));
             self.stats.hits_sent += 1;
             outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
         }
+        // a guest's hit requests: the friendly-fire guard, then the same ledger
+        for (from, m) in self.guarded_hits(cx, gs) {
+            outs.extend(live.on_msg(from, m, now_ms, auth));
+        }
+        // a guest's dialogue picks: the line's conditions as the picker, then the sessions
+        outs.extend(self.dialogue.check_picks(cx, gs, live, auth, now_ms));
         self.adopt_reported(cx, gs, live);
         outs.extend(self.announce_made(cx, gs, live));
-        for m in self.pump.publish(cx, gs, &mut self.own.actors, now_ms) {
+        for m in self
+            .pump
+            .publish(cx, gs, &mut self.own.actors, PlayerId::HOST, now_ms)
+        {
             outs.extend(live.on_msg(PlayerId::HOST, Msg::Actor(m), now_ms, auth));
         }
         outs.extend(self.dialogue.host_frame(cx, gs, live));
         outs.extend(self.rules.host_frame(cx, gs, live, now_ms));
+        // downs, revives and respawns: the live rules and the campaign tracker agree on every slot
+        super::campaign::downed::mirror_rules(gs, &self.rules.events);
+        for (slot, revivable) in std::mem::take(&mut gs.coop.campaign.down.to_live) {
+            let m = Msg::Rules(coop_core::rules::RulesMsg::ReportDown { revivable });
+            outs.extend(live.on_msg(PlayerId(slot), m, now_ms, auth));
+        }
+        // party message boxes: the question to the others, their casts to the gate
+        outs.extend(super::campaign::consent::box_frame(
+            gs,
+            live,
+            auth,
+            &self.rules.events,
+            now_ms,
+        ));
         outs.extend(self.scene.host_frame(cx, gs, live, now_ms));
         if now_ms >= self.next_loot_ms {
             self.next_loot_ms = now_ms + 100;
@@ -396,8 +608,21 @@ impl LiveHostAdapter {
             super::campaign::attribution::observe(cx, gs, &m);
             self.own.on_msg(m, now_ms);
         }
+        // NPC blows the ledger did not apply (a dead or unknown victim) expire
+        gs.coop.campaign.unattributed.clear();
         self.pump.apply(cx, gs, &self.own.actors, PlayerId::HOST);
         self.dialogue.poll_lines(gs, &self.own.dialogue);
+        self.dialogue
+            .note_refusals(cx, gs, &self.own.dialogue, now_ms);
+        // people host scripts made talk: a dialogue scene, or the line for everyone
+        outs.extend(self.dialogue.forced_frame(
+            cx,
+            gs,
+            live,
+            auth,
+            &mut self.own.dialogue,
+            now_ms,
+        ));
         for m in self.rules.local_frame(cx, gs, &mut self.own.rules) {
             outs.extend(live.on_msg(PlayerId::HOST, m, now_ms, auth));
         }
@@ -564,16 +789,19 @@ impl LiveGuestAdapter {
             self.stats.hits_sent += 1;
             out.push(Msg::Actor(live.actors.hit(cf(who), hit_points(amount))));
         }
+        self.pump.take_over(cx, gs, &live.actors, self.me);
         out.extend(
             self.pump
-                .publish(cx, gs, &mut live.actors, now_ms)
+                .publish(cx, gs, &mut live.actors, self.me, now_ms)
                 .into_iter()
                 .map(Msg::Actor),
         );
         self.pump.apply(cx, gs, &live.actors, self.me);
         self.dialogue.poll_lines(gs, &live.dialogue);
+        self.dialogue.note_refusals(cx, gs, &live.dialogue, now_ms);
         self.loot.apply(gs, &live.loot);
         out.extend(self.rules.local_frame(cx, gs, &mut live.rules));
+        super::campaign::consent::box_prompts(gs, &live.rules);
         out.extend(
             self.scene
                 .local_frame(cx, gs, &mut live.scene, false, now_ms),

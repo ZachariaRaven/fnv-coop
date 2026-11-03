@@ -10,7 +10,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use serde::{Deserialize, Serialize};
 
-use super::graph::CellGraph;
+use super::graph::{square_of, CellGraph};
 use crate::actors::Ownership;
 use crate::ids::{CellId, PlayerId};
 use crate::interest::InterestMap;
@@ -122,13 +122,21 @@ impl SceneModel {
     /// Returns which cells that loaded or unloaded for the peer.
     pub fn update_peer(&mut self, p: PlayerId, home: CellId, pos: [f32; 3]) -> CellDelta {
         let known = self.peers.get(&p).map(|s| s.home);
-        if known == Some(home) {
+        // outdoors the home is the worldspace: a new grid square loads other
+        // cells, and so does a grid registered after the peer arrived
+        let under = self.graph.cell_under(home, pos);
+        let new_square = self.graph.is_world(home)
+            && self.peers.get(&p).is_some_and(|s| {
+                square_of(s.pos) != square_of(pos) || under.is_some_and(|c| !s.loaded.contains(&c))
+            });
+        let moved_home = known != Some(home);
+        if !moved_home && !new_square {
             if let Some(s) = self.peers.get_mut(&p) {
                 s.pos = pos;
             }
             return CellDelta::default();
         }
-        let loaded = self.graph.loaded_set(home);
+        let loaded = self.graph.loaded_at(home, pos);
         let old = self.peers.insert(
             p,
             PeerScene {
@@ -141,9 +149,9 @@ impl SceneModel {
         let d = CellDelta {
             entered: loaded.difference(&before).copied().collect(),
             left: before.difference(&loaded).copied().collect(),
-            moved_home: true,
+            moved_home,
         };
-        self.stats.home_changes += 1;
+        self.stats.home_changes += u32::from(moved_home);
         self.stats.cells_entered += d.entered.len() as u32;
         self.stats.cells_left += d.left.len() as u32;
         d
@@ -200,6 +208,21 @@ impl SceneModel {
     /// True when `p` has `cell` loaded.
     pub fn is_loaded_by(&self, p: PlayerId, cell: CellId) -> bool {
         self.peers.get(&p).is_some_and(|s| s.loaded.contains(&cell))
+    }
+
+    /// True when `p` has loaded a thing filed under `cell` at `pos` (outdoors
+    /// the grid square decides, see [`CellGraph::sees`]).
+    pub fn sees(&self, p: PlayerId, cell: CellId, pos: [f32; 3]) -> bool {
+        self.peers
+            .get(&p)
+            .is_some_and(|s| self.graph.sees(s.home, s.pos, cell, pos))
+    }
+
+    /// The grid square `p`'s player stands in, when it stands outdoors in a
+    /// registered worldspace.
+    pub fn square_of_peer(&self, p: PlayerId) -> Option<(i32, i32)> {
+        let s = self.peers.get(&p)?;
+        self.graph.is_world(s.home).then(|| square_of(s.pos))
     }
 
     /// Players standing in the same home cell as `p` (not counting `p`).
@@ -411,6 +434,41 @@ mod tests {
         let d = m.update_peer(p(1), CellId(100 + 17), [0.0; 3]);
         assert_eq!(d.entered.len(), 4, "one row in");
         assert!(d.moved_home);
+    }
+
+    #[test]
+    fn worldspace_peers_load_the_square_around_their_position() {
+        let mut m = grid();
+        let w = CellId(0x3C);
+        let cell = |x: f32, y: f32| [x * 4096.0 + 10.0, y * 4096.0 + 10.0, 0.0];
+        let d = m.update_peer(p(0), w, cell(1.0, 1.0));
+        assert!(d.moved_home);
+        assert_eq!(d.entered.len(), 17, "the worldspace and 16 grid cells");
+        assert!(m.update_peer(p(0), w, cell(1.2, 1.0)).is_empty(), "same square");
+        let d = m.update_peer(p(0), w, cell(2.0, 1.0));
+        assert!(!d.moved_home && d.entered.len() == 4, "one column in");
+        m.update_peer(p(1), w, cell(7.0, 7.0));
+        assert_eq!(m.square_of_peer(p(1)), Some((7, 7)));
+        assert!(m.sees(p(0), w, cell(3.0, 2.0)));
+        assert!(!m.sees(p(0), w, cell(7.0, 7.0)), "the far peer's square");
+        assert!(m.sees(p(1), w, cell(6.0, 6.0)));
+    }
+
+    #[test]
+    fn a_grid_registered_late_still_loads_around_the_peer() {
+        let mut m = SceneModel::new();
+        let w = CellId(0x3C);
+        m.update_peer(p(0), w, [10.0, 10.0, 0.0]);
+        assert_eq!(m.loaded_of(p(0)).len(), 1, "nothing registered yet");
+        for x in 0..3 {
+            for y in 0..3 {
+                m.graph
+                    .register_exterior(CellId(100 + (x * 3 + y) as u32), 0x3C, x, y);
+            }
+        }
+        let d = m.update_peer(p(0), w, [20.0, 10.0, 0.0]);
+        assert!(!d.moved_home);
+        assert_eq!(d.entered.len(), 9, "the same square, now with its cells");
     }
 
     #[test]

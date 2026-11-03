@@ -28,6 +28,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::path::PathBuf;
 
 use coop_core::transport::Transport;
+use coop_net::joinsvc::{Hosted, JoinService, SERVICE_ENV};
 use coop_net::{
     random_token, Endpoint, EndpointConfig, JoinCode, JoinTarget as NetTarget, Token, UdpBackend,
     UdpConfig,
@@ -56,6 +57,10 @@ pub struct LinkRequest {
     pub token: Option<Token>,
     /// Where to look for `steam_api64.dll` (default: next to the exe).
     pub steam_dll: Option<PathBuf>,
+    /// The join service (`https://...` or `http://...`). Host: publish the join code
+    /// there and show its six character short code. Guest: resolve a short code
+    /// there (default: the `NVRS_JOIN_SERVICE` environment variable).
+    pub join_service: Option<String>,
 }
 
 impl LinkRequest {
@@ -70,6 +75,16 @@ impl LinkRequest {
             test_token: false,
             token: None,
             steam_dll: None,
+            join_service: None,
+        }
+    }
+
+    /// The join service a guest resolves short codes with: the request's, else
+    /// the environment's.
+    pub fn service(&self) -> Option<JoinService> {
+        match self.join_service.as_deref().filter(|s| !s.trim().is_empty()) {
+            Some(u) => Some(JoinService::at(u)),
+            None => JoinService::from_env(),
         }
     }
 }
@@ -110,6 +125,9 @@ pub struct Opened {
     pub kind: &'static str,
     /// Host: the join code to give friends.
     pub join_code: Option<String>,
+    /// Host: the join service's short code for `join_code`, with the secret that
+    /// removes it ([`remove_short_code`]).
+    pub short_code: Option<Hosted>,
     /// Log events to write once the session exists.
     pub notices: Vec<Notice>,
     /// Lines to print for the player.
@@ -130,6 +148,7 @@ impl Opened {
             errors,
             kind,
             join_code: None,
+            short_code: None,
             notices: Vec::new(),
             lines: Vec::new(),
             #[cfg(feature = "steam")]
@@ -276,8 +295,65 @@ fn open_udp_host(req: &LinkRequest, token: Token) -> Result<Opened, Error> {
             ("test_token", if req.test_token { "true" } else { "false" }),
         ],
     ));
+    if let Some(url) = req.join_service.as_deref().filter(|u| !u.trim().is_empty()) {
+        publish_short_code(&mut o, url, &code);
+    }
     o.join_code = Some(code);
     Ok(o)
+}
+
+/// Host: publishes the join code to the join service at `url` and records its
+/// short code (`coop_short_code`), or why there is none (`coop_short_code_failed`;
+/// the `NVRS-` code still works). The secret stays in [`Opened::short_code`] only.
+fn publish_short_code(o: &mut Opened, url: &str, code: &str) {
+    match JoinService::at(url).host(code, None) {
+        Ok(h) => {
+            o.lines.push(format!(
+                "Co-op: short join code {} (from the join service, valid for {} minutes)",
+                h.code,
+                (h.ttl_s / 60).max(1)
+            ));
+            o.notices.push(Notice::new(
+                "coop_short_code",
+                &[
+                    ("code", &h.code),
+                    ("service", url),
+                    ("expires_at", &h.expires_at.to_string()),
+                ],
+            ));
+            o.short_code = Some(h);
+        }
+        Err(e) => {
+            o.lines.push(format!(
+                "Co-op: no short join code ({e}); give friends the NVRS- code"
+            ));
+            o.notices.push(Notice::new(
+                "coop_short_code_failed",
+                &[("service", url), ("reason", &e)],
+            ));
+        }
+    }
+}
+
+/// Host: takes the short code off the join service at session end (needs the
+/// secret it was given).
+pub fn remove_short_code(url: &str, h: &Hosted) -> Result<(), String> {
+    JoinService::at(url).remove(&h.code, &h.secret)
+}
+
+/// Guest: the `NVRS-` code a short code stands for, from the join service.
+pub fn resolve_short_code(req: &LinkRequest, code: &str) -> Result<JoinCode, Error> {
+    let svc = req.service().ok_or_else(|| {
+        Error::Target(format!(
+            "{code} is a short join code: it needs the join service, and none is set (pass its address, or set {SERVICE_ENV}); or use the host's NVRS- code"
+        ))
+    })?;
+    let blob = svc.resolve(code).map_err(Error::Target)?;
+    blob.parse::<JoinCode>().map_err(|e| {
+        Error::Target(format!(
+            "the join service gave {code} a code this build cannot read: {e}"
+        ))
+    })
 }
 
 fn open_guest(req: &LinkRequest) -> Result<Opened, Error> {
@@ -301,9 +377,16 @@ fn open_guest(req: &LinkRequest) -> Result<Opened, Error> {
                 _ => Err(Error::Target("this join code needs a newer build".into())),
             }
         }
-        crate::target::JoinTarget::Code(_) => Err(Error::Target(
-            "short join codes need the join service, which this build does not call; use an NVRS- code".into(),
-        )),
+        crate::target::JoinTarget::Code(c) => {
+            let code = resolve_short_code(req, &c)?;
+            let mut o = match code.target {
+                NetTarget::Direct(a) => udp_guest(req, a, code.token)?,
+                NetTarget::SteamLobby(_) => guest_steam(req, Some(code))?,
+                _ => return Err(Error::Target("this join code needs a newer build".into())),
+            };
+            o.notices.push(Notice::new("coop_short_code_resolved", &[("code", &c)]));
+            Ok(o)
+        }
     }
 }
 

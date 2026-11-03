@@ -14,11 +14,23 @@ use esm::FormId;
 use crate::coop::shadow::PlayerShadow;
 use crate::scripting::{Facts, GameState, Value};
 
-/// One player's value of a condition function, from their shadow.
-pub fn shadow_value(gs: &GameState, sh: &PlayerShadow, name: &str, args: &[Value]) -> Option<f64> {
+/// One player's value of a condition function, from their shadow. `slot` is
+/// that player's slot (`IsKiller` asks who killed).
+pub fn shadow_value(
+    gs: &GameState,
+    slot: u8,
+    sh: &PlayerShadow,
+    name: &str,
+    args: &[Value],
+) -> Option<f64> {
     let arg = |i: usize| args.get(i).cloned().unwrap_or(Value::Number(0.0));
     let b = |x: bool| if x { 1.0 } else { 0.0 };
     Some(match name {
+        // the victim (the parameter) is dead and this player's blow killed it
+        "IsKiller" => {
+            let victim = arg(0).form();
+            b(gs.dead.contains(&victim) && gs.coop.campaign.killers.get(&victim) == Some(&slot))
+        }
         "GetItemCount" => f64::from(sh.items.get(&arg(0).form()).copied().unwrap_or(0)),
         "GetLevel" => f64::from(sh.level),
         "GetAV" | "GetActorValue" | "GetBaseActorValue" => sh
@@ -46,6 +58,26 @@ pub fn shadow_value(gs: &GameState, sh: &PlayerShadow, name: &str, args: &[Value
     })
 }
 
+/// Host: copies every other player's newest cell, position and heading from
+/// the avatar table into their parked shadow, so that `GetDistance` and
+/// `GetInCell` read where they are now, not where they joined.
+pub fn refresh_positions(gs: &mut GameState, players: &crate::coop::players::PlayerRegistry) {
+    let active = gs.coop.bank.active;
+    for (p, r) in players.iter() {
+        if p.0 == active || !r.seen {
+            continue;
+        }
+        let Some(sh) = gs.coop.bank.parked.get_mut(&p.0) else {
+            continue;
+        };
+        if r.cell != 0 {
+            sh.cell = Some(FormId(r.cell));
+        }
+        sh.position = Some(r.position.map(f32::to_bits));
+        sh.heading = r.heading.to_bits();
+    }
+}
+
 /// The reducer a quest's row names for a function (default: the initiator).
 pub fn reducer_for(gs: &GameState, quest: FormId, name: &str) -> Reducer {
     gs.coop
@@ -68,7 +100,7 @@ pub fn values(gs: &GameState, name: &str, args: &[Value]) -> Vec<(u8, f64)> {
             continue;
         }
         if let Some(sh) = gs.shadow_of(slot) {
-            if let Some(v) = shadow_value(gs, &sh, name, args) {
+            if let Some(v) = shadow_value(gs, slot, &sh, name, args) {
                 out.push((slot, v));
             }
         }

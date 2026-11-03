@@ -32,10 +32,11 @@ const CAMPAIGN: u64 = 0x00ab_12cd_34ef_5678;
 
 fn table() -> Arc<PolicyTable> {
     let json = format!(
-        r#"{{"schema":1,
+        r#"{{"schema":2,
 "policy":{{"death":{{"mode":"downed","revive_s":60,"all_down":"reload-host-save"}},"late_join":{{"during_scene":"wait","after_scene":"warp-to-zone"}},"barrier_timeout_s":120,"tether_timeout_s":120,"follower_cap":{{"humanoid":1,"critter":1}},"party_cap":4}},
 "shadow_classes":{{"skills":"per_player","perks":"per_player","followers":"per_player","karma":"shared","reputation":"shared"}},
-"quests":[{{"edid":"TQ","id":"0x{QUEST:08X}","plugin":"t.esm","tier":"T1","line":"t","status":"confirmed","advance":"host","scope":"per_player","save_suppress":true}}]}}"#
+"quests":[{{"edid":"TQ","id":"0x{QUEST:08X}","local":"0x{:08X}","plugin":"t.esm","tier":"T1","line":"t","status":"confirmed","advance":"host","scope":"per_player","save_suppress":true}}]}}"#,
+        QUEST & 0x00FF_FFFF
     );
     Arc::new(PolicyTable::from_json(&json).expect("table"))
 }
@@ -204,6 +205,7 @@ fn capture(rig: &Rig, keys: [u64; 2], seq: u32) -> PartySave {
         saved_unix: 1_700_000_000,
         world_text: world::save::save(&rig.host, None),
         guests,
+        rules: Default::default(),
     }
 }
 

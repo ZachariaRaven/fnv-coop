@@ -671,6 +671,45 @@ pub fn execute(
             Outcome::done()
         }
         Act::Transition { .. } => Outcome::refused(Why::Invalid),
+        // a player's own progress and ledgers (`campaign::progress`), in their shadow
+        Act::LevelUp { skills, perk } => {
+            let r = personal(order, gs, who, |g| {
+                super::campaign::progress::level_up(order, g, skills, wf(*perk))
+            });
+            match r {
+                Ok(_) => Outcome::done(),
+                Err(why) => Outcome::refused(why),
+            }
+        }
+        Act::Caravan { npc, stake, won } => {
+            personal(order, gs, who, |g| {
+                super::campaign::progress::caravan_played(order, g, wf(*npc), *stake, *won)
+            });
+            Outcome::done()
+        }
+        Act::Casino {
+            casino,
+            chips,
+            winnings,
+            level,
+            new_level,
+        } => {
+            let r = personal(order, gs, who, |g| {
+                super::campaign::progress::casino_closed(
+                    order,
+                    g,
+                    wf(*casino),
+                    *chips,
+                    *winnings,
+                    *level,
+                    *new_level,
+                )
+            });
+            match r {
+                Ok(()) => Outcome::done(),
+                Err(why) => Outcome::refused(why),
+            }
+        }
     }
 }
 

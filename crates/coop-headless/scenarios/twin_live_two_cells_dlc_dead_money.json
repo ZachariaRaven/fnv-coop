@@ -8,6 +8,7 @@
   "settle_s": 5,
   "host": { "script": [
     {"at": 2, "run": "coop enter NVDLC01PoliceStateFrontIntDoorREF NVDLC01PoliceStation 00000001"},
+    {"at": 5, "run": "coop teleport -6200 10200 1016"},
     {"at": 7, "run": "coop hit NVDLC01InitialVillaHarvester01REF 1"},
     {"at": 8, "run": "set CG03TestValue to 7"}
   ] },

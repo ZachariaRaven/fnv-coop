@@ -539,10 +539,12 @@ mod fighting {
             r.until(40_000, |r| !r.gas[1].rules.warps.is_empty()),
             "warped after the timeout"
         );
+        // the warp puts the straggler on its own spot of the ring around the anchor
         let p = r.guests[1].player_position.unwrap();
+        let d = p[0].hypot(p[1]);
         assert!(
-            p[0].abs() < 1.0 && p[1].abs() < 1.0,
-            "now at the anchor: {p:?}"
+            (d - coop_core::roam::model::WARP_SPREAD).abs() < 1.0,
+            "now on the ring around the anchor: {p:?}"
         );
         assert!(r.gas[0].rules.warps.is_empty() && r.ha.rules.warps.is_empty());
         assert!(r.until(5_000, |r| !r.host.coop.live.stage_held));

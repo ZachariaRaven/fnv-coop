@@ -20,6 +20,7 @@ pub mod net;
 pub mod party;
 pub mod peer;
 pub mod questwalk;
+pub mod recorder;
 pub mod scenario;
 pub mod sim;
 pub mod social_bot;

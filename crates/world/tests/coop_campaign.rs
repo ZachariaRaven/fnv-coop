@@ -23,7 +23,7 @@ use world::scripting::{GameState, ScriptCache, Value};
 
 fn table(rows: &str) -> Arc<PolicyTable> {
     let json = format!(
-        r#"{{"schema":1,
+        r#"{{"schema":2,
 "policy":{{"death":{{"mode":"downed","revive_s":30,"all_down":"respawn-at-checkpoint"}},"late_join":{{"during_scene":"wait","after_scene":"warp-to-zone"}},"barrier_timeout_s":120,"tether_timeout_s":120,"follower_cap":{{"humanoid":1,"critter":1}},"party_cap":4}},
 "shadow_classes":{{"skills":"per_player","perks":"per_player","followers":"per_player","karma":"shared","reputation":"shared","collar":"per_player","quest_var":"per_player"}},
 "quests":[{rows}]}}"#
@@ -32,8 +32,9 @@ fn table(rows: &str) -> Arc<PolicyTable> {
 }
 
 fn row(edid: &str, id: u32, extra: &str) -> String {
+    let local = id & 0x00FF_FFFF;
     format!(
-        r#"{{"edid":"{edid}","id":"0x{id:08X}","plugin":"t.esm","tier":"T1","line":"t","status":"confirmed","advance":"initiator"{extra}}}"#
+        r#"{{"edid":"{edid}","id":"0x{id:08X}","local":"0x{local:08X}","plugin":"t.esm","tier":"T1","line":"t","status":"confirmed","advance":"initiator"{extra}}}"#
     )
 }
 
@@ -372,10 +373,10 @@ mod friendly_fire {
             14,
         );
         let guard = FormId(GUARD_REF);
-        assert!(ffguard::allow_hit(&mut r.host, 0, guard));
-        assert!(!ffguard::allow_hit(&mut r.host, 0, guard));
+        assert!(ffguard::allow_hit(&order, &mut r.host, 0, guard));
+        assert!(!ffguard::allow_hit(&order, &mut r.host, 0, guard));
         r.host.coop.campaign.ff.tick(6.0);
-        assert!(ffguard::allow_hit(&mut r.host, 0, guard));
+        assert!(ffguard::allow_hit(&order, &mut r.host, 0, guard));
     }
 }
 
@@ -604,6 +605,46 @@ mod conditions {
     }
 
     #[test]
+    fn is_killer_and_the_cell_read_each_player() {
+        let (_d, order) = order("camp-party-killer");
+        let scripts = ScriptCache::default();
+        let rows = row(
+            "PQ",
+            0x700,
+            r#","party_cond":{"IsKiller":"any-party-member","GetInCell":"any"}"#,
+        );
+        let mut r = Rig::new(&order, &scripts, table(&rows), "perfect", 23);
+        let (q, victim, cell) = (FormId(0x700), FormId(0x4321), FormId(0x5555));
+        let get = |gs: &GameState, name: &str, a: &[Value]| {
+            party::party_value(gs, q, name, a, coop_policy::Phase::Entry)
+        };
+        assert_eq!(get(&r.host, "IsKiller", &[Value::Form(victim)]), Some(0.0));
+        // guest 2's blow killed it (the attribution's settle records the killer)
+        r.host.dead.insert(victim);
+        r.host.coop.campaign.killers.insert(victim, 2);
+        assert_eq!(
+            get(&r.host, "IsKiller", &[Value::Form(victim)]),
+            Some(1.0),
+            "any player killed it"
+        );
+        assert_eq!(get(&r.host, "GetInCell", &[Value::Form(cell)]), Some(0.0));
+        // guest 1 walked into the cell: the avatar table refreshes its parked shadow
+        let mut players = world::coop::players::PlayerRegistry::new();
+        let rec = players.join(coop_core::ids::PlayerId(1), "Guest");
+        rec.cell = cell.0;
+        rec.position = [10.0, 20.0, 30.0];
+        rec.seen = true;
+        party::refresh_positions(&mut r.host, &players);
+        assert_eq!(
+            get(&r.host, "GetInCell", &[Value::Form(cell)]),
+            Some(1.0),
+            "where the guest is now, not where it joined"
+        );
+        let p = r.host.shadow_of(1).unwrap().position.unwrap();
+        assert_eq!(f32::from_bits(p[2]), 30.0);
+    }
+
+    #[test]
     fn the_quest_context_routes_facts_through_the_reducers() {
         let (_d, order) = order("camp-party-facts");
         let scripts = ScriptCache::default();
@@ -798,6 +839,42 @@ mod lifecycle {
             r.host.coop.campaign.down.down.contains_key(&1),
             "the clock does not respawn a collar down"
         );
+    }
+
+    #[test]
+    fn a_collar_down_refuses_a_revive_and_tells_the_live_rules() {
+        let (_d, order) = order("camp-collar-revive");
+        let scripts = ScriptCache::default();
+        let extra = format!(
+            r#","shadow":{{"scope":"collar","vars":["fTimer"],"checkpoint":["t.esm:{CELL:X}"],"down":"until_checkpoint"}}"#
+        );
+        let mut r = Rig::new(
+            &order,
+            &scripts,
+            table(&row("Collar", 0x900, &extra)),
+            "perfect",
+            29,
+        );
+        let out = downed::script_down(&mut r.host, 1, Some(FormId(0x900)));
+        assert!(matches!(
+            out,
+            Some(coop_policy::lifecycle::DownOutcome::UntilCheckpoint { .. })
+        ));
+        assert_eq!(
+            r.host.coop.campaign.down.to_live,
+            vec![(1, false)],
+            "the live rules hear of a down that is not revivable"
+        );
+        assert!(!downed::revivable(&r.host, 1));
+        assert!(!downed::revive(&mut r.host, 1), "a collar death is not revivable");
+        assert!(r.host.coop.campaign.down.down.contains_key(&1));
+        // an ordinary down is revivable
+        let out = downed::script_down(&mut r.host, 2, None);
+        assert!(matches!(
+            out,
+            Some(coop_policy::lifecycle::DownOutcome::Downed { .. })
+        ));
+        assert!(downed::revive(&mut r.host, 2));
     }
 
     #[test]

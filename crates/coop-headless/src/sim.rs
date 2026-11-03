@@ -35,6 +35,9 @@ pub struct RunOpts {
     pub talk_at_ready: bool,
     /// Container actions go through `Session::live_loot_ops` (the proposed viewer change); by default the viewer's own `intents::loot` is mirrored.
     pub fixed_glue: bool,
+    /// The flight recorder: keep every peer's dump and shared hash once per
+    /// virtual second ([`RunResult::recording`]; `flight.jsonl` with `out`).
+    pub record: bool,
 }
 
 impl Default for RunOpts {
@@ -48,6 +51,7 @@ impl Default for RunOpts {
             data_arg: None,
             talk_at_ready: false,
             fixed_glue: false,
+            record: false,
         }
     }
 }
@@ -60,6 +64,8 @@ pub struct RunResult {
     pub hash: u64,
     /// Final dumps.
     pub dumps: [String; 2],
+    /// The flight recording, when `RunOpts::record` was set.
+    pub recording: Option<crate::recorder::Recording>,
 }
 
 fn fnv(bytes: &[u8]) -> u64 {
@@ -71,14 +77,53 @@ fn fnv(bytes: &[u8]) -> u64 {
 /// The viewer flag that makes a guest skip its character making.
 const NO_CHARGEN: &str = "--coop-no-chargen";
 
+/// The viewer's host flags for the campaign rules (`--coop-difficulty normal|balanced`,
+/// `--coop-friendly-fire on|off`). Each takes a value. The host session's config models them
+/// (see [`rules_of`]).
+const RULES_FLAGS: [&str; 2] = ["--coop-difficulty", "--coop-friendly-fire"];
+
+/// The campaign rules a host's flags choose, the way the viewer reads them (`None`: no rules
+/// flag).
+pub(crate) fn rules_of(
+    args: &[String],
+) -> Result<Option<world::coop::party_save::PartyRules>, String> {
+    use world::coop::party_save::PartyRules;
+    let mut r: Option<PartyRules> = None;
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        if !RULES_FLAGS.contains(&a.as_str()) {
+            continue;
+        }
+        let v = it.next().ok_or_else(|| format!("{a} needs a value"))?;
+        let e = r.get_or_insert_with(PartyRules::default);
+        if a == RULES_FLAGS[0] {
+            e.mode = PartyRules::parse_mode(v)
+                .ok_or_else(|| format!("{a} {v}: use normal or balanced"))?;
+        } else {
+            e.friendly_fire =
+                PartyRules::parse_switch(v).ok_or_else(|| format!("{a} {v}: use on or off"))?;
+        }
+    }
+    Ok(r)
+}
+
 /// A reason this scenario cannot run on this data (never guessed around).
 pub fn needs_assets(scn: &Scenario, d: &Data) -> Option<String> {
     for side in [&scn.host, &scn.guest] {
-        // modelled flags: `--walk`, and a guest's `--coop-no-chargen` (see `build_peers`)
-        let modelled =
-            |a: &str| a == "--walk" || (a == NO_CHARGEN && std::ptr::eq(side, &scn.guest));
-        if let Some(a) = side.extra_args.iter().find(|a| !modelled(a.as_str())) {
-            return Some(format!("viewer flag {a} has no headless model"));
+        // modelled flags: `--walk`, a guest's `--coop-no-chargen` (see `build_peers`) and the
+        // host's rules flags with their values (see `cfg`)
+        let host = std::ptr::eq(side, &scn.host);
+        let modelled = |a: &str| a == "--walk" || (a == NO_CHARGEN && !host);
+        let mut args = side.extra_args.iter();
+        while let Some(a) = args.next() {
+            if host && RULES_FLAGS.contains(&a.as_str()) {
+                args.next();
+            } else if !modelled(a.as_str()) {
+                return Some(format!("viewer flag {a} has no headless model"));
+            }
+        }
+        if let Err(e) = rules_of(&side.extra_args) {
+            return Some(format!("viewer flag {e}"));
         }
     }
     let cell = scn
@@ -175,6 +220,8 @@ fn cfg(name: &str, t: crate::net::SimLink, side: &crate::scenario::Side) -> Sess
         transport: Some(Box::new(t)),
         live: true,
         native_dialogue: true,
+        // the viewer's `--coop-difficulty` and `--coop-friendly-fire` (host)
+        rules: rules_of(&side.extra_args).ok().flatten(),
         ..SessionConfig::default()
     }
 }
@@ -260,7 +307,8 @@ fn build_peers(
 
 /// Runs one scenario to a verdict.
 pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
-    if scn.guest_count() > 1 {
+    // a `budget` key needs the counted links of the multi-peer runner
+    if scn.guest_count() > 1 || scn.budget.is_some() {
         return crate::multi::run_as_result(scn, d, o);
     }
     let seed = o.seed.unwrap_or(scn.seed);
@@ -295,6 +343,7 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
             verdict,
             hash,
             dumps,
+            recording: None,
         }
     };
     let t_prof = std::time::Instant::now();
@@ -359,6 +408,10 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
             return finish(facts, [String::new(), String::new()]);
         }
     };
+    if o.record {
+        host.flight = Some(Vec::new());
+        guest.flight = Some(Vec::new());
+    }
     let mut restarted = false;
     let _ = PlayerId::HOST;
     let cx = Ctx {
@@ -425,7 +478,10 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
                         o,
                     ) {
                         Ok((h, g, a2, b2, c2)) => {
+                            // the flight recording goes on across the restart
+                            let flights = (host.flight.take(), guest.flight.take());
                             (host, guest, h2g, g2h, clock) = (h, g, a2, b2, c2);
+                            (host.flight, guest.flight) = flights;
                             if pc.host_loads {
                                 if let Err(e) = crate::party::restore_host(&mut host, d) {
                                     facts.harness_error = Some(format!("party load: {e}"));
@@ -509,7 +565,30 @@ pub fn run(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
     if let Some(dir) = &party_dir {
         let _ = std::fs::remove_dir_all(dir);
     }
-    let r = finish(facts, dumps);
+    let mut r = finish(facts, dumps);
+    if o.record {
+        let rec = crate::recorder::Recording::from_peers(
+            &scn.name,
+            seed,
+            &scn.network,
+            &[
+                (
+                    "host".to_string(),
+                    host.ready_at,
+                    host.flight.as_deref().unwrap_or(&[]),
+                ),
+                (
+                    "guest".to_string(),
+                    guest.ready_at,
+                    guest.flight.as_deref().unwrap_or(&[]),
+                ),
+            ],
+        );
+        if let Some(dir) = &o.out {
+            let _ = rec.save(&run_dir(dir, &scn, seed));
+        }
+        r.recording = Some(rec);
+    }
     if let Some(dir) = &o.out {
         let _ = std::fs::write(
             run_dir(dir, &scn, seed).join("verdict.json"),

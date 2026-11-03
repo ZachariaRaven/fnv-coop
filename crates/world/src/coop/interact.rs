@@ -89,6 +89,9 @@ pub struct InteractFacts {
     pub shared_in: u32,
     /// Destinations received.
     pub follows_in: u32,
+    /// Guest: map markers this machine found and sent to the host, so that
+    /// `world::map::discover` finds each once before the party's copy arrives.
+    pub found: BTreeSet<FormId>,
     next_drop: u32,
 }
 
@@ -800,8 +803,70 @@ pub fn parse_act(
             to: CellId(f(3)?.0),
             one_way: word(4).as_deref() == Some("oneway"),
         },
+        // `levelup PERK|- [AV:N ...]`: the level-up menu's choices
+        "levelup" => {
+            let mut skills = Vec::new();
+            for w in words.iter().skip(2) {
+                let (av, pts) = w.split_once(':')?;
+                skills.push((av.parse::<u16>().ok()?, pts.parse::<u32>().ok()?));
+            }
+            let perk = match words.get(1).copied() {
+                None | Some("-") => FormId(0),
+                Some(p) => form(p)?,
+            };
+            Act::LevelUp {
+                skills,
+                perk: cf(perk),
+            }
+        }
+        // `caravan NPC STAKE won|lost`: a caravan game's result
+        "caravan" => Act::Caravan {
+            npc: c(f(1))?,
+            stake: words.get(2)?.parse().ok()?,
+            won: word(3)? == "won",
+        },
+        // `casino CASINO CHIPS WINNINGS [LEVEL] [new]`: a casino game closed
+        "casino" => Act::Casino {
+            casino: c(f(1))?,
+            chips: words.get(2)?.parse().ok()?,
+            winnings: words.get(3)?.parse().ok()?,
+            level: n(4, 0).min(4) as u8,
+            new_level: word(5).as_deref() == Some("new"),
+        },
         _ => return None,
     })
+}
+
+/// The level-up menu's choices as an act (`Act::LevelUp`).
+pub fn levelup_act(skills: &[(u16, i32)], perk: Option<FormId>) -> Act {
+    Act::LevelUp {
+        skills: skills
+            .iter()
+            .filter(|(_, n)| *n > 0)
+            .map(|(av, n)| (*av, *n as u32))
+            .collect(),
+        perk: cf(perk.unwrap_or(FormId(0))),
+    }
+}
+
+/// A caravan game's result as an act (`Act::Caravan`).
+pub fn caravan_act(npc: FormId, stake: i32, won: bool) -> Act {
+    Act::Caravan {
+        npc: cf(npc),
+        stake: stake.max(0) as u32,
+        won,
+    }
+}
+
+/// A casino game's closing as an act (`Act::Casino`).
+pub fn casino_act(casino: FormId, chips: i32, data: crate::casino::CasinoData, new_level: bool) -> Act {
+    Act::Casino {
+        casino: cf(casino),
+        chips: chips.max(0) as u32,
+        winnings: data.winnings,
+        level: data.level.clamp(0, 4) as u8,
+        new_level,
+    }
 }
 
 /// Test support (the bots' `coop give TARGET ITEM [N]`): puts items into a

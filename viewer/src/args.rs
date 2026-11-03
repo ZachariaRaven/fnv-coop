@@ -323,6 +323,8 @@ nv-viewer co-op flags (docs/COOP.md)
   --coop-load FILE         host: start from this nv-rs save (the launcher's Continue);
                            guest: take only your character from it
   --coop-no-chargen        test harness: a guest skips making its character
+  --coop-difficulty MODE   host: normal or balanced (the default), kept in the party save
+  --coop-friendly-fire SW  host: on or off (the default), kept in the party save
   --coop-help              this list
 
 The start of a game:
@@ -399,6 +401,9 @@ pub struct CoopArgs {
     pub no_chargen: bool,
     /// `--coop-allow-mismatch`: accept guests whose game differs (developers).
     pub allow_mismatch: bool,
+    /// Host: `--coop-difficulty normal|balanced` and `--coop-friendly-fire on|off`, the
+    /// campaign rules (`None`: a loaded party save's, else Co-op balanced, friendly fire off).
+    pub rules: Option<world::coop::party_save::PartyRules>,
     /// `--coop-voice`: off, ptt or vad.
     pub voice: Option<String>,
     /// `--coop-ptt-key`.
@@ -735,6 +740,20 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
                 })?);
             }
             "--coop-allow-mismatch" => coop.allow_mismatch = true,
+            "--coop-difficulty" => {
+                let v = value("--coop-difficulty")?;
+                let mode = world::coop::party_save::PartyRules::parse_mode(&v).ok_or_else(|| {
+                    format!("--coop-difficulty expects normal or balanced, got '{v}'")
+                })?;
+                coop.rules.get_or_insert_with(Default::default).mode = mode;
+            }
+            "--coop-friendly-fire" => {
+                let v = value("--coop-friendly-fire")?;
+                let on = world::coop::party_save::PartyRules::parse_switch(&v).ok_or_else(|| {
+                    format!("--coop-friendly-fire expects on or off, got '{v}'")
+                })?;
+                coop.rules.get_or_insert_with(Default::default).friendly_fire = on;
+            }
             "--coop-voice" => {
                 let v = value("--coop-voice")?;
                 if !["off", "ptt", "vad"].contains(&v.as_str()) {
@@ -1050,6 +1069,11 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
     }
     if coop.no_chargen && !coop.is_guest() {
         return Err("--coop-no-chargen is for a guest (--coop-join)".into());
+    }
+    if coop.rules.is_some() && coop.host.is_none() {
+        return Err(
+            "--coop-difficulty and --coop-friendly-fire are for the host (--coop-host)".into(),
+        );
     }
     if coop.is_guest() && positional.len() == 1 {
         positional.push(COOP_PLACE.to_string());
@@ -1588,6 +1612,32 @@ mod tests {
         ]))
         .is_err());
         assert!(parse(&strings(&["D", "C", "--coop-host", "--coop-no-chargen"])).is_err());
+    }
+
+    #[test]
+    fn host_chooses_the_campaign_rules() {
+        let h = parse(&strings(&[
+            "D",
+            "C",
+            "--coop-host",
+            "--coop-difficulty",
+            "normal",
+            "--coop-friendly-fire",
+            "on",
+        ]))
+        .unwrap()
+        .unwrap();
+        assert_eq!(
+            h.coop.rules.map(|r| (r.mode_name(), r.friendly_fire)),
+            Some(("normal", true))
+        );
+        let h = parse(&strings(&["D", "C", "--coop-host"])).unwrap().unwrap();
+        assert_eq!(h.coop.rules, None, "no flag: the save's rules or the default");
+        let err = |a: &[&str]| parse(&strings(a)).unwrap_err();
+        assert!(err(&["D", "C", "--coop-host", "--coop-difficulty", "hard"])
+            .contains("normal or balanced"));
+        assert!(err(&["D", "--coop-join", "h", "--coop-friendly-fire", "on"])
+            .contains("for the host"));
     }
 
     #[test]

@@ -656,6 +656,7 @@ fn an_original_save_starts_a_coop_campaign() {
             true,
             &host.shadow_of(1).unwrap(),
         )],
+        rules: Default::default(),
     };
     write_party(&party, &save).unwrap();
     let loaded = load_party(&party).unwrap();

@@ -25,14 +25,17 @@ use esm::{FormId, LoadOrder};
 use crate::scripting::GameState;
 
 pub mod attribution;
+pub mod bot;
 pub mod consent;
 pub mod downed;
 pub mod extra;
 pub mod ffguard;
 pub mod names;
+pub mod needs;
 pub mod owners;
 pub mod party;
 pub mod producers;
+pub mod progress;
 pub mod storage;
 
 /// All campaign bookkeeping of one machine.
@@ -46,6 +49,11 @@ pub struct Campaign {
     pub attribution_on: bool,
     /// Damage per victim and slot.
     pub tally: BTreeMap<FormId, BTreeMap<u8, f64>>,
+    /// Host, this frame: the ledger hits an NPC dealt (victim, points). They
+    /// keep the ledger's health right but pay no player.
+    pub unattributed: Vec<(FormId, u16)>,
+    /// Victims whose last ledger hit came from an NPC: their death has no killer.
+    pub npc_blow: BTreeSet<FormId>,
     /// Kills already settled.
     pub settled: BTreeSet<FormId>,
     /// What kills paid, for tests and diagnostics: (victim, slot, xp).
@@ -64,6 +72,15 @@ pub struct Campaign {
     pub cond_quest: Option<FormId>,
     /// The local player was down at the last host frame.
     pub local_down: bool,
+    /// The quest whose script took the local player's health (a collar).
+    pub down_quest: Option<FormId>,
+    /// Skill points the open level-up menu has given (skill actor value to
+    /// points), sent with the perk when it closes (`progress::level_up`).
+    pub levelup_draft: BTreeMap<u16, i32>,
+    /// Session clock (ms) of the next growth of the other players' needs.
+    pub needs_ms: u64,
+    /// The slot whose blow killed each settled victim (`party` `IsKiller`).
+    pub killers: BTreeMap<FormId, u8>,
     /// Session clock of the last host frame (ms).
     pub last_ms: u64,
     /// Members seen by the last host frame (slot bit set).
@@ -133,7 +150,8 @@ pub fn host_frame(cx: crate::coop::apply::Ctx, gs: &mut GameState, now_ms: u64) 
     let down_now = gs.coop.live.down_pending || gs.coop.live.downed;
     if down_now && !gs.coop.campaign.local_down {
         let slot = gs.active_slot();
-        downed::player_down(gs, slot, None);
+        let quest = gs.coop.campaign.down_quest.take();
+        downed::player_down(gs, slot, quest);
     } else if !down_now && gs.coop.campaign.local_down {
         let slot = gs.active_slot();
         downed::revive(gs, slot);
@@ -147,6 +165,7 @@ pub fn host_frame(cx: crate::coop::apply::Ctx, gs: &mut GameState, now_ms: u64) 
     owners::sync_critters(cx.order, gs);
     downed::frame(cx.order, gs, dt);
     consent::poll(gs);
+    needs::frame(cx.order, gs, now_ms);
 }
 
 impl GameState {

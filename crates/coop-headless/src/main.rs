@@ -10,6 +10,11 @@
 //     rebuild and re-run when a crates/coop-* or world source or a scenario file changes (docs/FASTDEV.md)
 // --talk-at-ready: `--talk` waits for coop_ready (default: first frame, as the viewer's does once its scene is loaded)
 // --glue-fixed: container actions use Session::live_loot_ops (default: mirror the viewer's intents::loot)
+// --record: the flight recorder (every peer's dump and shared hash per virtual second; flight.jsonl with --out)
+// coop-sim diverge RUN [RUN2] [--seed N] [--seed2 N] [--net P] [--lag S] [--data DIR]
+//     RUN is a scenario or a flight.jsonl; one RUN: host against each guest, two: run against run
+// coop-sim shrink SCENARIO [--seed N] [--net P] [--out FILE] [--data DIR]
+// coop-sim gentest [--seed N] [--count K] [--out DIR] [--run] [--data DIR]
 // ```
 // Exit code 0 pass, 1 fail, 2 usage or data error, 3 only skips (`needs_assets`).
 // The last line is `RESULT: PASS|FAIL|SKIP ...`, in the format of `runner.py`.
@@ -37,6 +42,7 @@ struct Args {
     fps: u32,
     talk_at_ready: bool,
     fixed_glue: bool,
+    record: bool,
     rows: bool,
     guests: Option<usize>,
     all_profiles: bool,
@@ -62,6 +68,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Result<Args, String> {
         fps: 40,
         talk_at_ready: false,
         fixed_glue: false,
+        record: false,
         rows: false,
         guests: None,
         all_profiles: false,
@@ -81,6 +88,7 @@ fn parse(mut a: impl Iterator<Item = String>) -> Result<Args, String> {
             "--twice" => r.twice = true,
             "--talk-at-ready" => r.talk_at_ready = true,
             "--glue-fixed" => r.fixed_glue = true,
+            "--record" => r.record = true,
             "--rows" => r.rows = true,
             "--guests" => {
                 r.guests = Some(
@@ -123,7 +131,12 @@ fn real_main() -> i32 {
     }
     if let Some(c) = std::env::args()
         .nth(1)
-        .filter(|c| c == "checklist" || c == "questwalk")
+        .filter(|c| {
+            matches!(
+                c.as_str(),
+                "checklist" | "questwalk" | "diverge" | "shrink" | "gentest"
+            )
+        })
     {
         return coop_headless::cli::run(&c, std::env::args().skip(2).collect());
     }
@@ -186,6 +199,7 @@ fn one(a: &Args, d: &Arc<Data>) -> i32 {
         data_arg: a.data.clone(),
         talk_at_ready: a.talk_at_ready,
         fixed_glue: a.fixed_glue,
+        record: a.record,
     };
     let t0 = std::time::Instant::now();
     let r = run(&scn, d, &o);
@@ -270,6 +284,7 @@ fn budget(a: &Args, d: &Arc<Data>) -> i32 {
             data_arg: a.data.clone(),
             talk_at_ready: a.talk_at_ready,
             fixed_glue: a.fixed_glue,
+            record: false,
         };
         let r = run_multi(&scn, d, &MultiOpts { run: o });
         if r.verdict.result == "skip" {

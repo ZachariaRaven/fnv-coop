@@ -70,6 +70,8 @@ pub struct LiveNow {
     pub view: Option<LiveView>,
     /// Counters for the state dump.
     pub counters: LiveCounters,
+    /// Glitch detectors over the remote avatars this machine draws.
+    pub glitch: coop_session::glitch::GlitchWatch,
 }
 
 /// Registers the live layer's systems (added by `coop::CoopPlugin` once a

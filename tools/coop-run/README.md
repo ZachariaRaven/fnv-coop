@@ -117,6 +117,15 @@ per-machine noise (clocks, local refs, padding) excluded; the runner fails any r
 guest differ (class `desync`) unless the scenario sets `"hash_check": false`. Extra keys are ignored,
 so the integrator can add more paths and assert on them.
 
+Each peer writes its own rows under its own slot name: a third peer's own position is `positions.guest2`
+in its own dump too. Story state, as each peer's game state holds it: `topics.<topic>`, `notes.<note>`,
+`map_markers.<marker>.{shown,travel,found}` (the Pip-Boy map's rules), `karma`,
+`reputations.<rep>.{fame,infamy}`, `factions.<faction>.<member>` (rank, the player is `player`),
+`faction_relations.<faction>.<other>` (0 neutral, 1 enemy, 2 ally, 3 friend) and `crime`
+(`factions.<faction>.{minor,major,enemy}`, `minor_total`, `major_total`, `enemies`, `player.{minor,major}`,
+`murderer`, `steal_warnings`). `status` is the status line: `players` (this peer too), `peers.<slot>.{name,rtt_ms}`,
+`rtt_ms`, `desync`, `desyncs`, `repairs`, `snapshots`, `line` and `compact` (the HUD texts).
+
 ### Script prefixes for the live layer
 
 A guest's `run` lines normally go to the host. Two prefixes change that (both in `run` and timed `run`):

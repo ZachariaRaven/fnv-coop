@@ -73,6 +73,56 @@ impl Default for Limits {
     }
 }
 
+impl Limits {
+    /// A scenario's `budget` object over the documented defaults.
+    pub fn from_cfg(c: &crate::scenario::BudgetCfg) -> Limits {
+        let d = Limits::default();
+        let kb = |v: Option<f64>, def: f64| v.map_or(def, |x| x * 1024.0);
+        Limits {
+            guest_down_bps: kb(c.guest_down_kbps, d.guest_down_bps),
+            guest_up_bps: kb(c.guest_up_kbps, d.guest_up_bps),
+            host_up_bps: kb(c.host_up_kbps, d.host_up_bps),
+            frame_mean_us: c.frame_mean_us.unwrap_or(d.frame_mean_us),
+            frame_p99_us: c.frame_p99_us.unwrap_or(d.frame_p99_us),
+        }
+    }
+}
+
+/// The gate of a scenario `budget` key: one `budget` check per violation, or
+/// one passing check that names the measured peak use. CPU is gated only when
+/// the scenario gives a CPU key and this is a release build.
+pub fn budget_checks(cfg: &crate::scenario::BudgetCfg, b: &Budget) -> Vec<Check> {
+    let lim = Limits::from_cfg(cfg);
+    let gate_cpu = cfg.gates_cpu() && !cfg!(debug_assertions);
+    let v = b.violations(&lim, gate_cpu);
+    if v.is_empty() {
+        let worst_down = b.peers.iter().skip(1).map(|p| p.down_bps).fold(0.0, f64::max);
+        let worst_up = b.peers.iter().skip(1).map(|p| p.up_bps).fold(0.0, f64::max);
+        let host_up = b.peers.first().map_or(0.0, |h| h.up_bps);
+        return vec![Check {
+            id: "budget".into(),
+            ok: true,
+            kind: "budget",
+            detail: format!(
+                "within budget over {:.0} steady s: guest down {:.1} KB/s, guest up {:.1} KB/s, host up {:.1} KB/s",
+                b.steady_s,
+                worst_down / 1024.0,
+                worst_up / 1024.0,
+                host_up / 1024.0
+            ),
+        }];
+    }
+    v.into_iter()
+        .enumerate()
+        .map(|(i, d)| Check {
+            id: format!("budget#{}", i + 1),
+            ok: false,
+            kind: "budget",
+            detail: d,
+        })
+        .collect()
+}
+
 /// Counters of one link endpoint.
 #[derive(Default)]
 pub struct LinkStats {
@@ -277,6 +327,8 @@ pub struct MultiResult {
     pub budget: Budget,
     /// Every check.
     pub checks: Vec<Check>,
+    /// The flight recording, when `RunOpts::record` was set.
+    pub recording: Option<crate::recorder::Recording>,
 }
 
 fn fnv(bytes: &[u8]) -> u64 {
@@ -294,8 +346,17 @@ fn name_of(i: usize) -> String {
 }
 
 /// Evaluates the scenario's checks over any number of dumps (host first).
-pub fn evaluate_all(scn: &Scenario, dumps: &[J]) -> Vec<Check> {
+/// A fifth peer that must be refused (`expect_refused`) is judged only by
+/// checks `on` it (`guest4`); `equal`, `all`, `both` and the hash check cover
+/// the party it was refused from.
+pub fn evaluate_all(scn: &Scenario, all_dumps: &[J]) -> Vec<Check> {
     let mut out = Vec::new();
+    let play = if scn.expect_refused {
+        all_dumps.len().min(crate::scenario::MAX_GUESTS + 1)
+    } else {
+        all_dumps.len()
+    };
+    let dumps = &all_dumps[..play];
     let host = &dumps[0];
     for e in &scn.expect {
         let mut one = |on: &str, a: &J, b: &J, suffix: &str| {
@@ -319,9 +380,13 @@ pub fn evaluate_all(scn: &Scenario, dumps: &[J]) -> Vec<Check> {
                     one("equal", host, g, &suffix);
                 }
             }
-            "guest2" | "guest3" => {
-                let i = if e.on == "guest2" { 2 } else { 3 };
-                match dumps.get(i) {
+            "guest2" | "guest3" | "guest4" => {
+                let i = match e.on.as_str() {
+                    "guest2" => 2,
+                    "guest3" => 3,
+                    _ => 4,
+                };
+                match all_dumps.get(i) {
                     Some(g) => one("guest", host, g, ""),
                     None => out.push(Check {
                         id: e.id.clone(),
@@ -391,6 +456,8 @@ fn cfg(name: &str, t: Counted, side: &crate::scenario::Side) -> SessionConfig {
         transport: Some(Box::new(t)),
         live: true,
         native_dialogue: true,
+        // the viewer's `--coop-difficulty` and `--coop-friendly-fire` (host)
+        rules: crate::sim::rules_of(&side.extra_args).ok().flatten(),
         ..SessionConfig::default()
     }
 }
@@ -434,6 +501,7 @@ pub fn run_multi(scn: &Scenario, d: &Arc<Data>, o: &MultiOpts) -> MultiResult {
             dumps: vec![],
             budget: Budget::default(),
             checks: vec![],
+            recording: None,
         }
     };
     // data the scenario needs: judged per side by the two peer rule
@@ -467,6 +535,7 @@ pub fn run_multi(scn: &Scenario, d: &Arc<Data>, o: &MultiOpts) -> MultiResult {
                 dumps: vec![],
                 budget: Budget::default(),
                 checks: vec![],
+                recording: None,
             };
         }
     }
@@ -540,7 +609,14 @@ pub fn run_multi(scn: &Scenario, d: &Arc<Data>, o: &MultiOpts) -> MultiResult {
             last: (0, 0),
         });
     }
-    let _ = count;
+    // a fifth peer the full party must refuse (`expect_refused` with a fourth guest
+    // entry): it starts once the four others are ready, and nobody waits for it
+    let extra = (scn.expect_refused && count > crate::scenario::MAX_GUESTS).then_some(count);
+    if ro.record {
+        for p in peers.iter_mut() {
+            p.flight = Some(Vec::new());
+        }
+    }
     let cx = Ctx {
         order: &d.order,
         scripts: &d.scripts,
@@ -567,7 +643,11 @@ pub fn run_multi(scn: &Scenario, d: &Arc<Data>, o: &MultiOpts) -> MultiResult {
                 }
             }
         }
-        for (p, m) in peers.iter_mut().zip(metas.iter_mut()) {
+        for (i, (p, m)) in peers.iter_mut().zip(metas.iter_mut()).enumerate() {
+            if Some(i) == extra && ready_s.is_none() {
+                // the fifth peer is not started until the party is full
+                continue;
+            }
             let t0 = Instant::now();
             p.frame(t, dt, d, cx);
             m.frame_us
@@ -578,7 +658,11 @@ pub fn run_multi(scn: &Scenario, d: &Arc<Data>, o: &MultiOpts) -> MultiResult {
             *m.down_bins.entry(bin).or_default() += st.down_bytes - m.last.1;
             m.last = (st.up_bytes, st.down_bytes);
         }
-        if ready_s.is_none() && peers.iter().all(|p| p.ready_at.is_some()) {
+        let playing_ready = peers
+            .iter()
+            .enumerate()
+            .all(|(i, p)| Some(i) == extra || p.ready_at.is_some());
+        if ready_s.is_none() && playing_ready {
             ready_s = Some(t);
             for m in metas.iter_mut() {
                 let st = m.stats.borrow();
@@ -588,7 +672,9 @@ pub fn run_multi(scn: &Scenario, d: &Arc<Data>, o: &MultiOpts) -> MultiResult {
         if end_s.is_none() {
             if let Some(r) = peers
                 .iter()
-                .map(|p| p.ready_at)
+                .enumerate()
+                .filter(|(i, _)| Some(*i) != extra)
+                .map(|(_, p)| p.ready_at)
                 .collect::<Option<Vec<f64>>>()
             {
                 let latest = r.into_iter().fold(0.0f64, f64::max);
@@ -654,13 +740,26 @@ pub fn run_multi(scn: &Scenario, d: &Arc<Data>, o: &MultiOpts) -> MultiResult {
         .iter()
         .map(|d| J::parse(d).unwrap_or(J::Null))
         .collect();
-    let checks = if parsed.iter().all(|j| *j != J::Null) {
+    let mut checks = if parsed.iter().all(|j| *j != J::Null) {
         evaluate_all(&scn, &parsed)
     } else {
         vec![]
     };
+    if let Some(cfg) = &scn.budget {
+        checks.extend(budget_checks(cfg, &budget));
+    }
     let mut class: Option<(&str, String)> = None;
-    if let Some(i) = peers.iter().position(|p| p.ready_at.is_none()) {
+    if let Some(x) = extra {
+        // the fifth peer's refusal is its end state, not an error (the checks judge it)
+        peers[x]
+            .errors
+            .retain(|e| !e.contains("refused the connection"));
+    }
+    if let Some(i) = peers
+        .iter()
+        .enumerate()
+        .position(|(i, p)| Some(i) != extra && p.ready_at.is_none())
+    {
         class = Some(("timeout", format!("{} never became ready", name_of(i))));
     }
     if class.is_none() {
@@ -681,10 +780,10 @@ pub fn run_multi(scn: &Scenario, d: &Arc<Data>, o: &MultiOpts) -> MultiResult {
     }
     let checks_failed = checks.iter().find(|c| !c.ok).map(|c| {
         (
-            if c.kind == "desync" {
-                "desync"
-            } else {
-                "assert"
+            match c.kind {
+                "desync" => "desync",
+                "budget" => "budget",
+                _ => "assert",
             },
             format!("{}: {}", c.id, c.detail),
         )
@@ -701,7 +800,7 @@ pub fn run_multi(scn: &Scenario, d: &Arc<Data>, o: &MultiOpts) -> MultiResult {
             "the twin passed: its checks prove nothing".to_string(),
         ),
         (Some((c, why)), false) => ("fail", (*c).to_string(), why.clone()),
-        (Some((c, why)), true) if matches!(*c, "assert" | "desync") => {
+        (Some((c, why)), true) if matches!(*c, "assert" | "desync" | "budget") => {
             ("pass", "twin".to_string(), why.clone())
         }
         (Some((c, why)), true) => ("fail", (*c).to_string(), why.clone()),
@@ -737,6 +836,14 @@ pub fn run_multi(scn: &Scenario, d: &Arc<Data>, o: &MultiOpts) -> MultiResult {
     let hash = dumps.iter().enumerate().fold(0u64, |h, (i, d)| {
         h ^ fnv(d.as_bytes()).rotate_left(i as u32)
     });
+    let recording = ro.record.then(|| {
+        let logs: Vec<crate::recorder::FlightLog> = peers
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (name_of(i), p.ready_at, p.flight.as_deref().unwrap_or(&[])))
+            .collect();
+        crate::recorder::Recording::from_peers(&scn.name, seed, &scn.network, &logs)
+    });
     MultiResult {
         verdict: Verdict {
             json,
@@ -748,6 +855,7 @@ pub fn run_multi(scn: &Scenario, d: &Arc<Data>, o: &MultiOpts) -> MultiResult {
         dumps,
         budget,
         checks,
+        recording,
     }
 }
 
@@ -760,5 +868,6 @@ pub fn run_as_result(scn: &Scenario, d: &Arc<Data>, o: &RunOpts) -> RunResult {
         verdict: r.verdict,
         hash: r.hash,
         dumps: [first, second],
+        recording: r.recording,
     }
 }

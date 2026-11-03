@@ -48,6 +48,8 @@ pub const ENDING_LIMIT_MS: u32 = 600_000;
 pub const CINEMATIC_LIMIT_MS: u32 = 120_000;
 /// Most hours one approved skip runs.
 const MAX_SKIP_HOURS: u32 = 48;
+/// Slides an ending scene takes (the story gives no count when it opens).
+pub const ENDING_SLIDES: u16 = coop_core::scene::MAX_SLIDES as u16;
 
 /// A movie the viewer should play now.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -125,9 +127,61 @@ pub fn reason_code(r: EndReason) -> u8 {
     }
 }
 
+/// A person a host script made talk (`StartConversation`, `SayTo`, `Say`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Talk {
+    /// Who talks.
+    pub speaker: FormId,
+    /// Who they talk to (0: no one in particular).
+    pub to: FormId,
+    /// The topic (`None`: their greeting).
+    pub topic: Option<FormId>,
+    /// `StartConversation` (a menu) rather than one line.
+    pub conversation: bool,
+}
+
+/// What forced talk and the pick checks did on this machine (state dump).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TalkCounters {
+    /// Talk notes the host took from its scripts.
+    pub notes: u32,
+    /// Dialogue scenes the host opened for a script's conversation.
+    pub scenes: u32,
+    /// Lines the host said to everyone without a menu (`SayTo`, `Say`).
+    pub lines: u32,
+    /// Talk notes the host could not share (busy, no line to say).
+    pub dropped: u32,
+    /// Picks the host refused (the line's conditions fail for the picker).
+    pub refused: u32,
+    /// Picks the host accepted after the check.
+    pub checked: u32,
+    /// Picks of this machine's player the host refused.
+    pub refusals: u32,
+    /// Frames this machine ran while it watched another player's session.
+    pub watched_frames: u32,
+    /// Milliseconds of those frames.
+    pub watched_ms: u32,
+    /// Milliseconds of those frames in which the world clock moved on here.
+    pub watched_clock_ms: u32,
+    /// Milliseconds of all frames in which the world clock moved on here.
+    pub clock_ms: u32,
+    /// How far the world clock here fell behind real time since the first
+    /// frame, in real milliseconds (the time it stood still).
+    pub clock_lag_ms: u32,
+}
+
 /// Per-machine scene facts on `GameState` (never replicated, never saved).
 #[derive(Clone, Debug, Default)]
 pub struct SceneFacts {
+    /// People host scripts made talk: the host shares them.
+    pub talk_notes: Vec<Talk>,
+    /// Forced talk and pick check counters.
+    pub talk: TalkCounters,
+    /// Host: its own conversation has had no pick for longer than the
+    /// bound, so the world's time runs on while its menu is up.
+    pub conversation_runs_clock: bool,
+    /// Fades, sounds and music of host scripts (see [`super::presentation`]).
+    pub present: super::presentation::PresentFacts,
     /// Movies scripts started (quest, movie): the host turns them into scenes.
     pub movie_notes: Vec<(Option<FormId>, Movie)>,
     /// Stages the policy marked as host scenes: (quest, kind).
@@ -280,6 +334,40 @@ impl GameState {
     /// local one is a smooth follower's.
     pub(crate) fn coop_clock_exported(&self, form: FormId, _local: f32) -> Option<f32> {
         self.coop.live.scene.replicated.get(&form).copied()
+    }
+
+    /// `StartConversation`, `SayTo` and `Say` hook: a script made a person
+    /// talk. On the host the live layer shares it: a conversation with the
+    /// player opens a dialogue scene for everyone, and a line is said to
+    /// everyone (see [`super::dialogue::DialogueBridge::forced_frame`]).
+    pub fn coop_talk(
+        &mut self,
+        speaker: FormId,
+        to: FormId,
+        topic: Option<FormId>,
+        conversation: bool,
+    ) {
+        if self.coop.authority != Authority::Host
+            || speaker == crate::dialogue::PLAYER_REF
+            || super::facts::player_of(speaker).is_some()
+        {
+            return;
+        }
+        self.coop.live.scene.talk_notes.push(Talk {
+            speaker,
+            to,
+            topic,
+            conversation,
+        });
+    }
+
+    /// Whether this machine's open conversation stops its world's time (the
+    /// viewer's `scripts` gate around `Runner::update`). In single player and
+    /// on a guest it always does. The host's time is everyone's time: its
+    /// conversation stops it for at most one dialogue heartbeat
+    /// ([`super::dialogue::CONVERSATION_HOLD_MS`]) after its last pick.
+    pub fn coop_conversation_stops_time(&self) -> bool {
+        self.coop.authority != Authority::Host || !self.coop.live.scene.conversation_runs_clock
     }
 
     /// The host's slideshow shows slide `index` (everyone sees it in order).
@@ -458,6 +546,8 @@ impl SceneBridge {
             outs.extend(live.route_scene(o));
             self.ctl = None;
         }
+        // what host scripts showed and played, for everyone else
+        outs.extend(super::presentation::host_frame(gs, live));
         // movies scripts started
         for (quest, movie) in std::mem::take(&mut gs.coop.live.scene.movie_notes) {
             let mut spec = SceneSpec::new(
@@ -509,6 +599,9 @@ impl SceneBridge {
                     } else {
                         ENDING_LIMIT_MS
                     };
+                    // the story shows its slides one at a time and gives no
+                    // count at the open: the scene takes the longest list
+                    spec.slides = ENDING_SLIDES;
                 }
                 _ => {
                     spec.locks = row_controls
@@ -731,6 +824,11 @@ impl SceneBridge {
                     }
                 }
                 Notice::Locked(_) => {}
+                Notice::Present(cue) => {
+                    if !host {
+                        super::presentation::apply(gs, cue);
+                    }
+                }
                 Notice::Slide { index, .. } => {
                     gs.coop.live.scene.slide = Some(index);
                     let c = &mut gs.coop.live.scene.counters;
@@ -835,6 +933,8 @@ fn run_skip(order: &LoadOrder, gs: &mut GameState, hours: u32, sleeping: bool) -
     let mut n = 0;
     while gs.living.hours_left > 0 && n < MAX_SKIP_HOURS {
         crate::living::sleep::pass_hour(order, gs);
+        // every other player's hardcore needs pass the same hour
+        super::campaign::needs::hour(order, gs, sleeping);
         n += 1;
     }
     gs.coop.live.scene.time_exec = false;

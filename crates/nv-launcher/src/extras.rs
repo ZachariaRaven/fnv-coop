@@ -123,9 +123,64 @@ pub struct Extras {
     pub ptt_key: Option<String>,
     /// `--coop-ping-key KEY`.
     pub ping_key: Option<String>,
+    /// Host: `--coop-difficulty normal|balanced`.
+    pub difficulty: Option<Difficulty>,
+    /// Host: `--coop-friendly-fire on|off`.
+    pub friendly_fire: Option<bool>,
+}
+
+/// The host's campaign difficulty mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Difficulty {
+    /// Single-player numbers whatever the party size.
+    Normal,
+    /// Scaled for the party (the viewer's default).
+    Balanced,
+}
+
+impl Difficulty {
+    pub fn parse(s: &str) -> Result<Difficulty, String> {
+        match s.to_ascii_lowercase().as_str() {
+            "normal" => Ok(Difficulty::Normal),
+            "balanced" => Ok(Difficulty::Balanced),
+            other => Err(format!("difficulty '{other}': use normal or balanced")),
+        }
+    }
+
+    pub fn arg(&self) -> &'static str {
+        match self {
+            Difficulty::Normal => "normal",
+            Difficulty::Balanced => "balanced",
+        }
+    }
+}
+
+/// `on` or `off`.
+pub fn parse_switch(s: &str) -> Result<bool, String> {
+    match s.to_ascii_lowercase().as_str() {
+        "on" => Ok(true),
+        "off" => Ok(false),
+        other => Err(format!("'{other}': use on or off")),
+    }
 }
 
 impl Extras {
+    /// The host-only viewer arguments: the campaign rules. The viewer keeps
+    /// them in the party save, so a Continue without them plays on with the
+    /// saved rules.
+    pub fn host_args(&self) -> Vec<String> {
+        let mut a = Vec::new();
+        if let Some(d) = self.difficulty {
+            a.push("--coop-difficulty".into());
+            a.push(d.arg().into());
+        }
+        if let Some(f) = self.friendly_fire {
+            a.push("--coop-friendly-fire".into());
+            a.push(if f { "on" } else { "off" }.into());
+        }
+        a
+    }
+
     /// The viewer arguments. A couch player that does not own the voice gets
     /// voice off unless the caller said otherwise, so one PC never opens
     /// several microphones into the same session.
@@ -234,6 +289,28 @@ mod tests {
     #[test]
     fn nothing_set_means_no_arguments() {
         assert!(Extras::default().args().is_empty());
+        assert!(Extras::default().host_args().is_empty());
+    }
+
+    #[test]
+    fn the_host_chooses_the_campaign_rules() {
+        let e = Extras {
+            difficulty: Some(Difficulty::parse("Normal").unwrap()),
+            friendly_fire: Some(parse_switch("on").unwrap()),
+            ..Extras::default()
+        };
+        assert_eq!(
+            e.host_args(),
+            [
+                "--coop-difficulty",
+                "normal",
+                "--coop-friendly-fire",
+                "on"
+            ]
+        );
+        assert!(e.args().is_empty(), "a guest never gets the rules flags");
+        assert!(Difficulty::parse("hard").is_err());
+        assert!(parse_switch("maybe").is_err());
     }
 
     #[test]

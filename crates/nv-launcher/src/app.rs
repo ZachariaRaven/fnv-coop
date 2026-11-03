@@ -489,6 +489,17 @@ impl App {
             }
             match joincode::parse_join(&t) {
                 Ok(JoinInput::Addr(_)) => self.ui.fail("A plain address has no session token. Ask the host for their join code (NVRS-...)."),
+                // a short code: the join service (NVRS_JOIN_SERVICE) says which NVRS- code it is
+                Ok(JoinInput::Short(c)) => match coop_net::joinsvc::JoinService::from_env() {
+                    Some(svc) => match joincode::resolve_short(&c, &svc) {
+                        Ok(j) => break j,
+                        Err(e) => self.ui.fail(&e),
+                    },
+                    None => self.ui.fail(&format!(
+                        "{c} is a short join code, and no join service is set ({}). Ask the host for their NVRS- code.",
+                        coop_net::joinsvc::SERVICE_ENV
+                    )),
+                },
                 Ok(j) => break j,
                 Err(e) => self.ui.fail(&e),
             }

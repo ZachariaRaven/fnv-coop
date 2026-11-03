@@ -177,6 +177,70 @@ pub struct Scenario {
     /// `guests: [..]`: every guest's script (2 or 3 entries for a 3 or 4 peer
     /// run). When present it replaces `guest`, which becomes `guests[0]`.
     pub guests: Vec<Side>,
+    /// `budget: {..}`: the multi-peer judge fails the run when a peer's steady
+    /// bandwidth (or CPU, when given) passes these limits.
+    pub budget: Option<BudgetCfg>,
+}
+
+/// The `budget` object of a scenario: limits in KB/s (1024 bytes) and
+/// microseconds. A key that is left out keeps the documented default; CPU is
+/// gated only when one of its keys is given (and only in release builds).
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct BudgetCfg {
+    /// Host to one guest, KB/s.
+    pub guest_down_kbps: Option<f64>,
+    /// One guest to the host, KB/s.
+    pub guest_up_kbps: Option<f64>,
+    /// The host's total upstream, KB/s.
+    pub host_up_kbps: Option<f64>,
+    /// Mean frame time, microseconds.
+    pub frame_mean_us: Option<f64>,
+    /// 99th percentile frame time, microseconds.
+    pub frame_p99_us: Option<f64>,
+}
+
+impl BudgetCfg {
+    const KEYS: [&'static str; 5] = [
+        "guest_down_kbps",
+        "guest_up_kbps",
+        "host_up_kbps",
+        "frame_mean_us",
+        "frame_p99_us",
+    ];
+
+    fn parse(j: &J, errs: &mut Vec<String>) -> BudgetCfg {
+        let mut b = BudgetCfg::default();
+        let J::Obj(m) = j else {
+            errs.push("budget must be an object".into());
+            return b;
+        };
+        for (k, v) in m {
+            let slot = match k.as_str() {
+                "guest_down_kbps" => &mut b.guest_down_kbps,
+                "guest_up_kbps" => &mut b.guest_up_kbps,
+                "host_up_kbps" => &mut b.host_up_kbps,
+                "frame_mean_us" => &mut b.frame_mean_us,
+                "frame_p99_us" => &mut b.frame_p99_us,
+                _ => {
+                    errs.push(format!(
+                        "budget.{k} is not a budget key ({})",
+                        Self::KEYS.join(", ")
+                    ));
+                    continue;
+                }
+            };
+            match v.as_f64() {
+                Some(n) if n > 0.0 => *slot = Some(n),
+                _ => errs.push(format!("budget.{k} must be a number > 0")),
+            }
+        }
+        b
+    }
+
+    /// True when a CPU key is given.
+    pub fn gates_cpu(&self) -> bool {
+        self.frame_mean_us.is_some() || self.frame_p99_us.is_some()
+    }
 }
 
 impl Scenario {
@@ -258,7 +322,11 @@ impl Scenario {
             host: Side::default(),
             guest: Side::default(),
             guests: Vec::new(),
+            budget: None,
         };
+        if let Some(b) = j.get("budget") {
+            s.budget = Some(BudgetCfg::parse(b, &mut errs));
+        }
         if s.cell.is_none() && !s.new_game {
             errs.push("cell is required unless new_game is true".into());
         }
@@ -313,9 +381,11 @@ impl Scenario {
                 parse_side(r, role, side, &mut errs);
             }
         }
+        // a fourth guest entry is a fifth peer that only a refusal scenario may start
+        let max_guests = MAX_GUESTS + usize::from(s.expect_refused);
         if let Some(gs) = j.get("guests") {
             match gs.as_arr() {
-                Some(a) if !a.is_empty() && a.len() <= MAX_GUESTS => {
+                Some(a) if !a.is_empty() && a.len() <= max_guests => {
                     for (n, r) in a.iter().enumerate() {
                         let mut side = Side::default();
                         parse_side(r, &format!("guests[{n}]"), &mut side, &mut errs);
@@ -324,7 +394,7 @@ impl Scenario {
                     s.guest = s.guests[0].clone();
                 }
                 _ => errs.push(format!(
-                    "guests must be a list of 1 to {MAX_GUESTS} objects"
+                    "guests must be a list of 1 to {MAX_GUESTS} objects (one more with expect_refused: a fifth peer the full party refuses)"
                 )),
             }
         }
@@ -547,9 +617,11 @@ fn parse_expect(e: &J, i: usize) -> Result<Expect, Vec<String>> {
     if !OPS.contains(&op.as_str()) {
         errs.push(format!("expect {id}: op {op:?} not in {OPS:?}"));
     }
-    if !["host", "guest", "guest2", "guest3", "all", "both", "equal"].contains(&on.as_str()) {
+    if !["host", "guest", "guest2", "guest3", "guest4", "all", "both", "equal"]
+        .contains(&on.as_str())
+    {
         errs.push(format!(
-            "expect {id}: on {on:?} not in host/guest/guest2/guest3/all/both/equal"
+            "expect {id}: on {on:?} not in host/guest/guest2/guest3/guest4/all/both/equal"
         ));
     }
     if path.is_empty() {

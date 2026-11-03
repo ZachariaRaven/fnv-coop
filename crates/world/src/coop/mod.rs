@@ -49,6 +49,7 @@ pub mod party_char;
 pub mod party_save;
 pub mod players;
 pub mod policy_gate;
+pub mod presentation;
 pub mod roam_ops;
 pub mod rules;
 pub mod scene;
@@ -131,6 +132,11 @@ pub enum Domain {
     MapMarker,
     /// `faction_changes`.
     Faction,
+    /// `faction_relations` (`SetEnemy`, `SetAlly`).
+    FactionRelation,
+    /// Crime (`world::crime`): `crime_enemies`, `faction_crimes`, the
+    /// player's crime counts, steal warnings and murderer flag.
+    Crime,
     /// A player's shadow (`shadow::shadow_form`).
     Shadow,
 }

@@ -66,6 +66,8 @@ pub fn build(p: &Plan) -> Spec {
                 args.push("--coop-token".into());
                 args.push(crate::joincode::token_hex(t));
             }
+            // the campaign rules (the party save keeps them)
+            args.extend(p.extras.host_args());
         }
         Mode::Join { addr } => {
             args.push("--coop-join".into());

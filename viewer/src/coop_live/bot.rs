@@ -45,6 +45,10 @@
 //! coop pvp SLOT DMG | fire WEAPON X Y Z | explode EXPL RADIUS DMG
 //! coop vats TARGET LIMB CHANCE DMG | vatsmark 0|1 | sneak 0|1
 //! coop cripple LIMB | rads N | cure | spawnenc BASE N   (see world::coop::combat_live)
+//! coop recruit|dismiss|command|down|downrevive|stash|level|objvar|fork|pcond|ffhit|hardcore ...
+//!                              the campaign verbs, host only
+//!                              (`world::coop::campaign::bot`), shared with the headless bot;
+//!                              `give SLOT ...` and `vote QUEST SLOT yes|no` are theirs too
 //! coop teleport X Y Z          put this machine's physical player at the
 //!                              feet position (game units), as arriving
 //!                              from a MoveTo or a door does
@@ -125,6 +129,11 @@ pub fn run(
         let arg = |i: usize| words.get(i).copied();
         let f = |i: usize| arg(i).and_then(|w| form(order, w));
         let n = |i: usize| arg(i).and_then(|w| w.parse::<u32>().ok()).unwrap_or(1);
+        // the campaign verbs (down, give SLOT, level, objvar, pcond, hardcore ...), host only,
+        // shared with the headless simulator's bot
+        if world::coop::campaign::bot::bot_line(cx, gs, &words, &|w| form(order, w)) {
+            continue;
+        }
         match arg(1).map(str::to_ascii_lowercase).as_deref() {
             Some("hit") => {
                 if let (Some(who), Some(amount)) =
@@ -297,6 +306,13 @@ pub fn run(
             }
             Some("skip") => gs.coop_scene_skip(arg(2) != Some("no")),
             Some("vote") => link.0.live_intent(Intent::Answer(arg(2) != Some("no"))),
+            // `coop button N`: the local player presses button N of the open message box
+            // (the message menu sets the same field, `game_menus::message::after`)
+            Some("button") => {
+                if let Some(b) = arg(2).and_then(|w| w.parse::<i32>().ok()) {
+                    gs.button = Some(b);
+                }
+            }
             Some("initiate") => {
                 let q = arg(2)
                     .and_then(|w| gs.coop_policy_quest(w))

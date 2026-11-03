@@ -76,6 +76,13 @@ pub fn run(
     let view = link.0.live_frame(gs, cx, time.delta_secs()).cloned();
     now.counters.hits_sent = u64::from(link.0.live_hits_sent());
     now.counters.tracked = link.0.live_tracked() as u64;
+    // the glitch detectors over the remote avatars as this machine draws them
+    if let Some(v) = view.as_ref() {
+        now.glitch.frame(v.now_ms, &v.avatars);
+    }
+    let counts = now.glitch.counts;
+    now.counters.glitch = counts;
+    now.counters.full_refused = u64::from(link.0.full_refusals());
     // scenes: the movie the scene layer starts (at its scene time), stops, and reports done
     if let Some(m) = gs.coop.live.scene.movie_start.take() {
         movies.offset_ms = m.offset_ms;

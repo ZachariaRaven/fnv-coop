@@ -1,0 +1,74 @@
+{
+  "name": "twin_story_factions",
+  "description": "MUTATION TWIN of story_factions: no script changes a faction and the guest commits no crime. Marked expect_fail.",
+  "cell": "GSProspectorSaloonInterior",
+  "network": "good_wifi",
+  "seed": 77,
+  "duration_s": 14,
+  "settle_s": 6,
+  "host": {
+    "script": []
+  },
+  "guest": {
+    "script": []
+  },
+  "expect": [
+    {
+      "id": "member-rank",
+      "path": "factions.GoodspringsBighornerFaction.player",
+      "op": "eq",
+      "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "enemy",
+      "path": "faction_relations.GoodspringsBighornerFaction.VGoodspringsDialogueFaction",
+      "op": "eq",
+      "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "enemy-back",
+      "path": "faction_relations.VGoodspringsDialogueFaction.GoodspringsBighornerFaction",
+      "op": "eq",
+      "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "ally",
+      "path": "faction_relations.GoodspringsBighornerFaction.Vault19PowderGangerFaction",
+      "op": "eq",
+      "value": 2,
+      "on": "both"
+    },
+    {
+      "id": "ally-back",
+      "path": "faction_relations.Vault19PowderGangerFaction.GoodspringsBighornerFaction",
+      "op": "eq",
+      "value": 2,
+      "on": "both"
+    },
+    {
+      "id": "crime-faction",
+      "path": "crime.factions.GoodspringsFaction.major",
+      "op": "eq",
+      "value": 1,
+      "on": "both"
+    },
+    {
+      "id": "crime-enemy-flag",
+      "path": "crime.factions.GoodspringsFaction.enemy",
+      "op": "eq",
+      "value": true,
+      "on": "both"
+    },
+    {
+      "id": "crime-player",
+      "path": "crime.player.major",
+      "op": "eq",
+      "value": 1,
+      "on": "both"
+    }
+  ],
+  "expect_fail": true
+}

@@ -20,7 +20,7 @@
     {"id": "picked", "path": "interact.lockpick", "op": "ge", "value": 1, "on": "guest"},
     {"id": "unlocked-host", "path": "objects.locks.GSDocMitchellHouseIntDoorREF", "op": "eq", "value": -1, "on": "host"},
     {"id": "unlocked-guest", "path": "objects.locks.GSDocMitchellHouseIntDoorREF", "op": "eq", "value": -1, "on": "guest"},
-    {"id": "guest-outside-own", "path": "live.roam.cells.guest", "op": "eq", "value": 542442, "on": "guest"},
+    {"id": "guest-outside-own", "path": "live.roam.cells.guest", "op": "eq", "value": 896699, "on": "guest"},
     {"id": "guest-outside-host-view", "path": "live.roam.cells.guest", "op": "eq", "value": 894758, "on": "host"},
     {"id": "guest-took-the-door", "path": "interact.transition", "op": "ge", "value": 1, "on": "guest"},
     {"id": "h", "path": "hash.shared", "on": "equal"}

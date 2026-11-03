@@ -192,12 +192,15 @@ pub struct CombatStats {
     pub vats_clock_kept: u32,
     /// Detection values the `probe` verb measured, oldest first (tests).
     pub probes: Vec<i32>,
+    /// What the `probeparty` verb measured, oldest first (tests): the
+    /// party's value (the best-seen player) and each player's, by slot.
+    pub party_probes: Vec<(i32, BTreeMap<u8, i32>)>,
 }
 
 impl CombatStats {
     /// The dump object (`combat` in the state dump).
     pub fn json(&self) -> String {
-        format!(
+        let base = format!(
             "{{\"npc_hits_sent\":{},\"pvp_sent\":{},\"hurts_applied\":{},\"hurt_points\":{:.1},\"downs\":{},\"effects_applied\":{},\"fires_sent\":{},\"fires_seen\":{},\"blasts_sent\":{},\"blasts_seen\":{},\"blast_hits\":{},\"vats_sent\":{},\"vats_hits\":{},\"retargets\":{},\"crimes\":{},\"extras_made\":{},\"extras_cleared\":{},\"vats_clock_kept\":{},\"probe_first\":{},\"probe_last\":{},\"probe_drop\":{}}}",
             self.npc_hits_sent,
             self.pvp_sent,
@@ -220,6 +223,37 @@ impl CombatStats {
             self.probes.first().copied().unwrap_or(0),
             self.probes.last().copied().unwrap_or(0),
             self.probes.first().copied().unwrap_or(0) - self.probes.last().copied().unwrap_or(0)
+        );
+        let party = self.party_probe_json();
+        format!("{},{party}}}", base.strip_suffix('}').unwrap_or(&base))
+    }
+
+    /// `probe_party_first`, `_last`, `_drop` and `probe_slots.<slot>.{first,
+    /// last,drop}` from the `probeparty` samples (zero without any).
+    fn party_probe_json(&self) -> String {
+        let first = self.party_probes.first();
+        let last = self.party_probes.last();
+        let pf = first.map_or(0, |p| p.0);
+        let pl = last.map_or(0, |p| p.0);
+        let mut slots: Vec<String> = Vec::new();
+        if let (Some(f), Some(l)) = (first, last) {
+            for (slot, a) in &f.1 {
+                let b = l.1.get(slot).copied().unwrap_or(*a);
+                let key = match slot {
+                    0 => "host".to_string(),
+                    1 => "guest".to_string(),
+                    n => format!("guest{n}"),
+                };
+                slots.push(format!(
+                    "\"{key}\":{{\"first\":{a},\"last\":{b},\"drop\":{}}}",
+                    a - b
+                ));
+            }
+        }
+        format!(
+            "\"probe_party_first\":{pf},\"probe_party_last\":{pl},\"probe_party_drop\":{},\"probe_slots\":{{{}}}",
+            pf - pl,
+            slots.join(",")
         )
     }
 }
@@ -424,6 +458,64 @@ pub fn remote_candidates(state: &GameState) -> Vec<(FormId, [f32; 3])> {
             })
         })
         .map(|(f, p)| (*f, p.pos))
+        .collect()
+}
+
+// -- party detection -----------------------------------------------------
+
+/// How well `npc` detects each player of the party now: the local player
+/// (`PLAYER_REF`) and every remote player's puppet, each with their own
+/// sneak, motion, skill and level (`Facts::detection`). Downed and dead
+/// players and players outside the NPC's place are left out.
+pub fn party_values(order: &LoadOrder, gs: &GameState, npc: FormId) -> Vec<(FormId, i32)> {
+    let facts = Facts {
+        order,
+        state: gs,
+        speaker: None,
+    };
+    let mut out = Vec::new();
+    let local_out = gs.coop.live.downed || gs.dead.contains(&PLAYER_REF);
+    if !local_out {
+        if let Some(v) = facts.detection(npc, PLAYER_REF) {
+            out.push((PLAYER_REF, v));
+        }
+    }
+    for (form, _, _, _) in remote_seen(gs) {
+        if let Some(v) = facts.detection(npc, form) {
+            out.push((form, v));
+        }
+    }
+    out
+}
+
+/// The party rule for stealth: an NPC detects the party as well as it
+/// detects the player it sees best (the highest detection value). One
+/// player in plain sight gives the party away, however well the others
+/// sneak. `None` when no player shares the NPC's place.
+pub fn party_detection(order: &LoadOrder, gs: &GameState, npc: FormId) -> Option<(FormId, i32)> {
+    party_values(order, gs, npc)
+        .into_iter()
+        .fold(None, |best, (f, v)| match best {
+            Some((_, b)) if b >= v => best,
+            _ => Some((f, v)),
+        })
+}
+
+/// Whom each enemy in combat attends to, by player slot: its combat
+/// target when that is a player (`PLAYER_REF` is `me`, a puppet its
+/// player). Dead enemies and other targets are left out.
+pub fn enemy_targets(gs: &GameState, me: PlayerId) -> Vec<(FormId, PlayerId)> {
+    gs.combat
+        .iter()
+        .filter(|(enemy, _)| !gs.dead.contains(*enemy) && player_of(**enemy).is_none())
+        .filter_map(|(enemy, t)| {
+            let p = if *t == PLAYER_REF {
+                me
+            } else {
+                player_of(*t)?
+            };
+            Some((*enemy, p))
+        })
         .collect()
 }
 
@@ -1273,6 +1365,52 @@ fn quant(v: f32) -> i32 {
     coop_core::avatar::quant_pos(v)
 }
 
+/// The `probeparty` verb: puts `npc` `dist` units south of the local
+/// player, facing them, reads [`party_values`] and [`party_detection`],
+/// puts the NPC back and keeps the sample in the combat counters.
+fn probe_party(order: &LoadOrder, gs: &mut GameState, npc: FormId, dist: f32) {
+    let Some((space, cell, at, _)) = gs.place(order, PLAYER_REF) else {
+        return;
+    };
+    let keep = (
+        gs.positions.get(&npc).copied(),
+        gs.spaces.get(&npc).copied(),
+    );
+    gs.positions
+        .insert(npc, ([at[0], at[1] - dist, at[2]], 0.0));
+    gs.spaces.insert(npc, (space, cell));
+    let values = party_values(order, gs, npc);
+    let best = party_detection(order, gs, npc);
+    match keep.0 {
+        Some(k) => gs.positions.insert(npc, k),
+        None => gs.positions.remove(&npc),
+    };
+    match keep.1 {
+        Some(k) => gs.spaces.insert(npc, k),
+        None => gs.spaces.remove(&npc),
+    };
+    // the local player's slot: the host is slot 0, a guest its live rows' owner
+    let me = if gs.coop.authority == super::Authority::Guest {
+        gs.active_slot()
+    } else {
+        0
+    };
+    let by_slot: BTreeMap<u8, i32> = values
+        .iter()
+        .filter_map(|(f, v)| {
+            let slot = if *f == PLAYER_REF {
+                me
+            } else {
+                player_of(*f)?.0
+            };
+            Some((slot, *v))
+        })
+        .collect();
+    if let Some((_, v)) = best {
+        gs.coop.live.combat.stats.party_probes.push((v, by_slot));
+    }
+}
+
 /// A creature base is always a threat to the party.
 fn hostile_base(order: &LoadOrder, base: FormId) -> bool {
     order
@@ -1296,6 +1434,7 @@ fn hostile_base(order: &LoadOrder, base: FormId) -> bool {
 /// coop vats TARGET LIMB CHANCE DAMAGE   one VATS shot (cost 20 AP)
 /// coop vatsmark 0|1                     entered or left VATS
 /// coop sneak 0|1                        the local player sneaks
+/// coop probeparty NPC DIST              NPC's detection of the party (tests)
 /// coop cripple LIMB | rads N | cure     effects on the local player
 /// ```
 pub fn bot_line(
@@ -1500,6 +1639,14 @@ pub fn bot_line(
                         gs.coop.live.combat.stats.probes.push(v);
                     }
                 }
+            }
+        }
+        Some("probeparty") => {
+            // coop probeparty NPC DIST: how well NPC detects the party (the
+            // best-seen player, `party_detection`) and each player, standing
+            // DIST units south of the local player and looking at them (tests)
+            if let (Some(npc), Some(dist)) = (arg(2).and_then(form), num(3)) {
+                probe_party(order, gs, npc, dist as f32);
             }
         }
         Some("cure") => apply_effect(

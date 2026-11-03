@@ -106,6 +106,11 @@ fn builtin_checks_pass_and_their_twins_fail() {
         "harness_verdicts",
         "harness_sim_deterministic",
         "backend_engine_stub",
+        "story_effects_covered",
+        "harness_recorder",
+        "harness_diverge",
+        "harness_shrink",
+        "harness_gentest",
     ];
     let _g = LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let d = data();

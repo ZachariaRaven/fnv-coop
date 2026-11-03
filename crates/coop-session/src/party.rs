@@ -522,6 +522,10 @@ impl Session {
         l.campaign = save.campaign;
         l.loaded = save.guests.iter().map(|g| (g.key, g.clone())).collect();
         l.next_seq = l.next_seq.max(save.seq);
+        // the campaign keeps its rules unless the host's flags chose others
+        if !self.rules_given {
+            self.set_rules(save.rules);
+        }
     }
 
     /// Guest: F5 on a guest. Saves only this player's character, into the character file
@@ -1005,6 +1009,7 @@ fn host_pending(
         saved_unix: p.unix,
         world_text: p.world_text,
         guests: guests.into_values().collect(),
+        rules: s.rules().unwrap_or_default(),
     };
     let n = save.guests.len();
     let result = party_save::write_party(&p.dir, &save);

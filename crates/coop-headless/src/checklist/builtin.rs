@@ -65,6 +65,7 @@ pub fn registry() -> Vec<(&'static str, Check)> {
         .chain(super::units_net::registry())
         .chain(super::units_sim::registry())
         .chain(super::units_harness::registry())
+        .chain(super::units_more::registry())
         .collect()
 }
 

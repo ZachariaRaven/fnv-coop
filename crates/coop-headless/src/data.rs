@@ -24,6 +24,9 @@ pub struct Data {
 pub struct Place {
     /// The cell record.
     pub cell: FormId,
+    /// The worldspace of an exterior cell (`None` for an interior): the
+    /// viewer starts an exterior cell in its worldspace.
+    pub world: Option<FormId>,
     /// Where the player arrives (feet).
     pub spawn: [f32; 3],
     /// Arrival heading, radians.
@@ -123,9 +126,18 @@ impl Data {
         );
         Ok(Place {
             cell,
+            world: self.world_of_cell(cell),
             spawn,
             heading,
             actors,
         })
+    }
+
+    /// The worldspace an exterior cell belongs to (`None` for an interior).
+    pub fn world_of_cell(&self, cell: FormId) -> Option<FormId> {
+        let rr = self.order.get(cell)?;
+        (rr.entry.header.kind.as_bytes() == b"CELL")
+            .then(|| self.order.world_of(&rr))
+            .flatten()
     }
 }

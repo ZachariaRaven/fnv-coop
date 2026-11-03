@@ -31,6 +31,10 @@ pub struct DialogueClient {
     pub denied: Option<(u32, Deny)>,
     /// How the last session ended.
     pub last_closed: Option<(u32, CloseReason)>,
+    /// Picks of ours the host refused, and the newest refused choice.
+    pub refused: u32,
+    /// The newest refused pick: (session, choice).
+    pub last_refused: Option<(u32, u32)>,
 }
 
 impl DialogueClient {
@@ -43,6 +47,8 @@ impl DialogueClient {
             last_beat: 0,
             denied: None,
             last_closed: None,
+            refused: 0,
+            last_refused: None,
         }
     }
 
@@ -135,6 +141,14 @@ impl DialogueClient {
                 self.last_beat = now_ms;
             }
             DialogueMsg::Denied { req, reason } => self.denied = Some((req, reason)),
+            DialogueMsg::Refused {
+                session, choice, ..
+            } => {
+                if self.view.is_some_and(|v| v.session == session) {
+                    self.refused += 1;
+                    self.last_refused = Some((session, choice));
+                }
+            }
             DialogueMsg::Picked {
                 session,
                 step,

@@ -180,7 +180,14 @@ fn group_of(r: &QuestResult) -> String {
     format!("Quests: Base game, {g}")
 }
 
+/// A row's data needs: one need, or several separated by commas (all must be here).
 fn needs_ok(needs: &str, d: Option<&Data>) -> Result<(), String> {
+    if needs.contains(',') {
+        return needs
+            .split(',')
+            .map(str::trim)
+            .try_for_each(|n| needs_ok(n, d));
+    }
     let Some(d) = d else {
         return Err("no data folder".into());
     };

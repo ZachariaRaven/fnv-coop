@@ -76,6 +76,9 @@ pub struct SceneHost {
     /// Time skips announced.
     pub skips: u32,
     last_clock: Option<(ClockSnap, u64)>,
+    next_present: u32,
+    /// Image space modifiers a host script left on (for late joiners).
+    imods: Vec<u32>,
 }
 
 impl Default for SceneHost {
@@ -97,6 +100,42 @@ impl SceneHost {
             next_time_event: 1,
             skips: 0,
             last_clock: None,
+            next_present: 1,
+            imods: Vec::new(),
+        }
+    }
+
+    /// A host script's presentation for every other player (G39). A
+    /// modifier that stays on is replayed to a late joiner.
+    pub fn present(&mut self, cue: Cue) -> Vec<SOut> {
+        if let Cue::ImageSpace { form, on } = cue {
+            self.imods.retain(|f| *f != form);
+            if on && self.imods.len() < MAX_IMODS {
+                self.imods.push(form);
+            }
+        }
+        let event = self.next_present;
+        self.next_present += 1;
+        vec![out(
+            Audience::AllExcept(PlayerId::HOST),
+            SceneMsg::Present { event, cue },
+        )]
+    }
+
+    /// The image space modifiers a host script left on.
+    pub fn imods(&self) -> &[u32] {
+        &self.imods
+    }
+
+    fn replay_imods(&self, p: PlayerId, outs: &mut Vec<SOut>) {
+        for &form in &self.imods {
+            outs.push(out(
+                Audience::To(p),
+                SceneMsg::Present {
+                    event: 0,
+                    cue: Cue::ImageSpace { form, on: true },
+                },
+            ));
         }
     }
 
@@ -436,6 +475,7 @@ impl SceneHost {
         if let Some(c) = clock {
             outs.push(out(Audience::To(p), SceneMsg::Clock { clock: c }));
         }
+        self.replay_imods(p, &mut outs);
         outs
     }
 
@@ -460,6 +500,7 @@ impl SceneHost {
         if let Some(c) = clock {
             outs.push(out(Audience::To(p), SceneMsg::Clock { clock: c }));
         }
+        self.replay_imods(p, &mut outs);
         outs
     }
 

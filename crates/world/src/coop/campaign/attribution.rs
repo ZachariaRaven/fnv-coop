@@ -39,11 +39,30 @@ pub fn observe(cx: Ctx, gs: &mut GameState, msg: &Msg) {
         ActorMsg::Damaged {
             actor, by, amount, ..
         } => {
-            let e = gs.coop.campaign.tally.entry(FormId(actor.0)).or_default();
+            let victim = FormId(actor.0);
+            let camp = &mut gs.coop.campaign;
+            // an NPC's blow on the host world goes to the ledger as the host's
+            // hit; it pays nobody (the host never hit the victim)
+            if by.is_host() {
+                if let Some(i) = camp
+                    .unattributed
+                    .iter()
+                    .position(|(v, p)| *v == victim && p == amount)
+                {
+                    camp.unattributed.remove(i);
+                    camp.npc_blow.insert(victim);
+                    return;
+                }
+            }
+            camp.npc_blow.remove(&victim);
+            let e = camp.tally.entry(victim).or_default();
             *e.entry(by.0).or_insert(0.0) += f64::from(*amount);
         }
         ActorMsg::Died { actor, killer } => {
-            settle(cx.order, gs, FormId(actor.0), killer.map(|k| k.0));
+            let victim = FormId(actor.0);
+            let npc = gs.coop.campaign.npc_blow.remove(&victim);
+            let killer = killer.filter(|k| !(npc && k.is_host()));
+            settle(cx.order, gs, victim, killer.map(|k| k.0));
         }
         _ => {}
     }
@@ -73,6 +92,8 @@ pub fn settle(
         .map(|(s, _)| *s)
         .collect();
     if let Some(k) = killer {
+        // who killed whom, by slot (the party's `IsKiller`)
+        gs.coop.campaign.killers.insert(victim, k);
         if !who.contains(&k) {
             who.push(k);
         }

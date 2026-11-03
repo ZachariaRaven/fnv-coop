@@ -22,6 +22,7 @@
 pub mod control;
 pub mod dump;
 pub mod ext;
+pub mod glitch;
 pub mod json;
 pub mod link;
 pub mod live;

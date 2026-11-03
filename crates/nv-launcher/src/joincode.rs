@@ -37,6 +37,9 @@ pub enum JoinInput {
     Addr(String),
     /// Join whichever Steam friend is hosting (`--coop-steam-friend`), no code.
     SteamFriend,
+    /// A six character join-service code (normalised). [`resolve_short`] turns it into
+    /// the `NVRS-` code it stands for; the viewer can also resolve it itself.
+    Short(String),
 }
 
 impl JoinInput {
@@ -46,7 +49,22 @@ impl JoinInput {
             JoinInput::Code { text, .. } => text,
             JoinInput::Addr(a) => a,
             JoinInput::SteamFriend => "",
+            JoinInput::Short(c) => c,
         }
+    }
+}
+
+/// Asks the join service what a short code stands for and returns that join code.
+pub fn resolve_short(
+    code: &str,
+    svc: &coop_net::joinsvc::JoinService,
+) -> Result<JoinInput, String> {
+    let blob = svc.resolve(code)?;
+    match parse_join(&blob)? {
+        j @ JoinInput::Code { .. } => Ok(j),
+        _ => Err(format!(
+            "the join service gave {code} something that is not a join code"
+        )),
     }
 }
 
@@ -74,6 +92,13 @@ pub fn parse_join(input: &str) -> Result<JoinInput, String> {
             text: code.to_string(),
             target: code.target,
         });
+    }
+    // a six character code of the join service (no ':' or '.', so not a host name with a port
+    // or a domain); the viewer's `coop_session::target` reads it the same way
+    if !s.contains(':') && !s.contains('.') {
+        if let Some(c) = coop_net::joinsvc::normalize_code(s) {
+            return Ok(JoinInput::Short(c));
+        }
     }
     if let Some(a) = s.parse::<SocketAddr>().ok().filter(|a| a.port() != 0) {
         return Ok(JoinInput::Addr(a.to_string()));
@@ -189,6 +214,27 @@ mod tests {
         ] {
             assert!(parse_join(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn short_codes_are_codes_not_host_names() {
+        for typed in ["K7M3XW", "k7m-3xw", " k7 m3 xw "] {
+            assert_eq!(
+                parse_join(typed).unwrap(),
+                JoinInput::Short("K7M3XW".into()),
+                "{typed}"
+            );
+        }
+        assert_eq!(parse_join("K7M3XW").unwrap().viewer_arg(), "K7M3XW");
+        // a host name with a dot or a port stays an address
+        assert_eq!(
+            parse_join("K7M3XW.lan").unwrap(),
+            JoinInput::Addr("K7M3XW.lan:27961".into())
+        );
+        assert_eq!(
+            parse_join("K7M3XW:99").unwrap(),
+            JoinInput::Addr("K7M3XW:99".into())
+        );
     }
 
     #[test]

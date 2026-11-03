@@ -39,6 +39,8 @@ pub enum Notice {
         /// The clock after it.
         clock: ClockSnap,
     },
+    /// A host script's presentation to show or play here.
+    Present(Cue),
 }
 
 struct CScene {
@@ -99,6 +101,9 @@ pub struct SceneClient {
     /// Newest clock from the host with the local time it arrived.
     pub clock: Option<(ClockSnap, u64)>,
     rtt_ms: u32,
+    last_present: u32,
+    /// Host presentations received here (each event once).
+    pub presented: u32,
 }
 
 impl SceneClient {
@@ -116,6 +121,8 @@ impl SceneClient {
             closed_total: 0,
             clock: None,
             rtt_ms: 0,
+            last_present: 0,
+            presented: 0,
         }
     }
 
@@ -257,6 +264,14 @@ impl SceneClient {
         let id = info.id;
         let zero = (replay && info.phase == Phase::Playing)
             .then(|| now_ms.saturating_sub(u64::from(info.elapsed_ms)));
+        // a replay (late join, merge, rejoin) of an ending shows the slide it is on
+        let shown = self.scenes.get(&id).map_or(0, |s| s.info.slide);
+        if info.spec.kind == SceneKind::Ending && info.slide > shown {
+            self.notices.push(Notice::Slide {
+                id,
+                index: info.slide,
+            });
+        }
         match self.scenes.get_mut(&id) {
             Some(s) => {
                 let was = s.info.phase;
@@ -370,6 +385,14 @@ impl SceneClient {
                 }
             }
             SceneMsg::Clock { clock } => self.clock = Some((clock, now_ms)),
+            SceneMsg::Present { event, cue } => {
+                // event 0 replays a modifier that stays on: showing it again is harmless
+                if event == 0 || event > self.last_present {
+                    self.last_present = self.last_present.max(event);
+                    self.presented += 1;
+                    self.notices.push(Notice::Present(cue));
+                }
+            }
             SceneMsg::Ready { .. }
             | SceneMsg::Done { .. }
             | SceneMsg::SkipVote { .. }
@@ -570,6 +593,61 @@ mod tests {
         let n = cs[1].take_notices();
         assert_eq!(n, vec![Notice::Slide { id, index: 2 }]);
         assert_eq!(cs[1].primary(3).unwrap().slide, 2);
+    }
+
+    #[test]
+    fn a_late_joiner_to_an_ending_is_shown_the_slide_it_is_on() {
+        let (mut h, mut cs) = setup();
+        let mut s = SceneSpec::new(SceneKind::Ending, 3);
+        s.slides = 8;
+        s.barrier = BarrierRule::Roam;
+        let (id, o) = h.open(s, 0).unwrap();
+        deliver(o, &mut cs, 0);
+        deliver(h.slide(id, 1), &mut cs, 1);
+        deliver(h.slide(id, 2), &mut cs, 2);
+        let mut late = SceneClient::new(p(3));
+        let o = h.on_join(p(3), 5, None);
+        deliver(o, std::slice::from_mut(&mut late), 5);
+        let n = late.take_notices();
+        assert!(n.contains(&Notice::Slide { id, index: 2 }), "{n:?}");
+        // a repeat of the same replay shows nothing new
+        let o = h.resync(p(3), 6, None);
+        deliver(o, std::slice::from_mut(&mut late), 6);
+        assert!(!late
+            .take_notices()
+            .iter()
+            .any(|n| matches!(n, Notice::Slide { .. })));
+    }
+
+    #[test]
+    fn a_host_presentation_reaches_every_guest_once_and_a_joiner_sees_the_fade_left_on() {
+        let (mut h, mut cs) = setup();
+        let fade = Cue::ImageSpace {
+            form: 0x174411,
+            on: true,
+        };
+        let o = h.present(fade);
+        deliver(o.clone(), &mut cs, 1);
+        // a duplicate of the same event is shown once
+        deliver(o, &mut cs, 2);
+        deliver(h.present(Cue::Sound { form: 9 }), &mut cs, 3);
+        assert!(cs[0].take_notices().is_empty(), "the host showed it already");
+        for c in &mut cs[1..] {
+            assert_eq!(
+                c.take_notices(),
+                vec![Notice::Present(fade), Notice::Present(Cue::Sound { form: 9 })]
+            );
+            assert_eq!(c.presented, 2);
+        }
+        let mut late = SceneClient::new(p(3));
+        deliver(h.on_join(p(3), 5, None), std::slice::from_mut(&mut late), 5);
+        assert!(late.take_notices().contains(&Notice::Present(fade)));
+        // the fade removed: no replay for the next joiner
+        h.present(Cue::ImageSpace {
+            form: 0x174411,
+            on: false,
+        });
+        assert!(h.imods().is_empty());
     }
 
     #[test]

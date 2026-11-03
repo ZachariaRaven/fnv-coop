@@ -37,6 +37,15 @@ pub mod tag {
     /// A dead actor (not a player): in the shared hash, so a lost kill
     /// message is noticed and repaired.
     pub const DEAD: u16 = 10;
+    /// A faction's relations (`SetEnemy`, `SetAlly`), on the faction (data:
+    /// other faction u32 le and reaction u8, per entry, sorted).
+    pub const RELATION: u16 = 11;
+    /// A faction's crime, on the faction (data: minor u32 le, major u32 le,
+    /// holds the player as an enemy u8).
+    pub const CRIME: u16 = 12;
+    /// The player's crime, on `PLAYER_REF` (data: minor u32 le, major u32
+    /// le, steal warnings u32 le, murderer u8).
+    pub const PLAYER_CRIME: u16 = 13;
     /// Done stages of a quest: `STAGES_BASE + stage / STAGES_CHUNK`.
     pub const STAGES_BASE: u16 = 0x1000;
     /// Stages per chunk (2 bytes each, well under the 512 byte limit).
@@ -143,6 +152,8 @@ pub fn domain_of(k: &Key) -> Domain {
             tag::PERK => Domain::Perk,
             tag::LEVEL => Domain::Level,
             tag::REPUTATION => Domain::Reputation,
+            tag::RELATION => Domain::FactionRelation,
+            tag::CRIME | tag::PLAYER_CRIME => Domain::Crime,
             t if t >= tag::FACTION_BASE => Domain::Faction,
             _ => Domain::StagesDone,
         },
@@ -235,7 +246,6 @@ pub fn export(gs: &GameState) -> Fields {
         (&gs.notes, tag::NOTE),
         (&gs.destroyed, tag::DESTROYED),
         (&gs.stocked, tag::STOCKED),
-        (&gs.map_markers, tag::MARKER),
     ] {
         for f in set
             .iter()
@@ -244,6 +254,19 @@ pub fn export(gs: &GameState) -> Fields {
             put(*f, custom(t, vec![1]));
         }
     }
+    // a map marker: bit 1 revealed (`ShowMap`), bit 2 found (`discovered`,
+    // which unlocks fast travel whatever the marker's own flags say)
+    let mut marks: BTreeMap<FormId, u8> = BTreeMap::new();
+    for m in &gs.map_markers {
+        *marks.entry(*m).or_default() |= 1;
+    }
+    for m in &gs.discovered {
+        *marks.entry(*m).or_default() |= 2;
+    }
+    for (m, bits) in marks {
+        put(m, custom(tag::MARKER, vec![bits]));
+    }
+    export_factions_crime(gs, &mut put);
     for f in gs
         .dead
         .iter()
@@ -334,6 +357,49 @@ pub fn export(gs: &GameState) -> Fields {
     m
 }
 
+/// Faction relations and crime: the party's, one value on every peer.
+fn export_factions_crime(gs: &GameState, put: &mut impl FnMut(FormId, Field)) {
+    let mut rel: BTreeMap<FormId, Vec<(u32, u8)>> = BTreeMap::new();
+    for ((a, b), r) in &gs.faction_relations {
+        rel.entry(*a).or_default().push((b.0, *r));
+    }
+    for (a, mut others) in rel {
+        others.sort_unstable();
+        others.truncate(tag::FACTION_MAX);
+        let mut d = Vec::new();
+        for (b, r) in others {
+            d.extend(b.to_le_bytes());
+            d.push(r);
+        }
+        put(a, custom(tag::RELATION, d));
+    }
+    let factions: std::collections::BTreeSet<FormId> = gs
+        .faction_crimes
+        .keys()
+        .chain(&gs.crime_enemies)
+        .copied()
+        .collect();
+    for f in factions {
+        let (minor, major) = gs.faction_crimes.get(&f).copied().unwrap_or((0, 0));
+        let enemy = gs.crime_enemies.contains(&f);
+        if minor == 0 && major == 0 && !enemy {
+            continue;
+        }
+        let mut d = minor.to_le_bytes().to_vec();
+        d.extend(major.to_le_bytes());
+        d.push(u8::from(enemy));
+        put(f, custom(tag::CRIME, d));
+    }
+    let (minor, major) = gs.player_crimes;
+    if minor != 0 || major != 0 || gs.steal_warnings != 0 || gs.player_murderer {
+        let mut d = minor.to_le_bytes().to_vec();
+        d.extend(major.to_le_bytes());
+        d.extend(gs.steal_warnings.to_le_bytes());
+        d.push(u8::from(gs.player_murderer));
+        put(PLAYER_REF, custom(tag::PLAYER_CRIME, d));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -355,6 +421,40 @@ mod tests {
         assert_eq!(export(&a), export(&b));
         a.items.insert((FormId(1), FormId(2)), 3);
         assert_ne!(export(&a), export(&b));
+    }
+
+    #[test]
+    fn factions_crime_and_found_markers_round_trip() {
+        let mut a = GameState::default();
+        a.faction_relations.insert((FormId(5), FormId(6)), 1);
+        a.faction_relations.insert((FormId(6), FormId(5)), 2);
+        a.faction_crimes.insert(FormId(7), (1, 2));
+        a.crime_enemies.insert(FormId(8));
+        a.player_crimes = (3, 4);
+        a.steal_warnings = 1;
+        a.player_murderer = true;
+        a.map_markers.insert(FormId(9));
+        a.discovered.insert(FormId(10));
+        let fields = export(&a);
+        let ds: Vec<Domain> = fields.keys().map(domain_of).collect();
+        assert!(ds.contains(&Domain::FactionRelation));
+        assert!(ds.contains(&Domain::Crime));
+        let mut b = GameState::default();
+        super::super::apply::reconcile(&mut b, &fields, Default::default());
+        assert_eq!(export(&b), fields);
+        assert_eq!(b.faction_relations, a.faction_relations);
+        assert_eq!(b.faction_crimes.get(&FormId(7)), Some(&(1, 2)));
+        assert!(b.crime_enemies.contains(&FormId(8)));
+        assert_eq!((b.player_crimes, b.steal_warnings), ((3, 4), 1));
+        assert!(b.player_murderer);
+        // revealed only, found only
+        assert!(b.map_markers.contains(&FormId(9)) && !b.discovered.contains(&FormId(9)));
+        assert!(b.discovered.contains(&FormId(10)) && !b.map_markers.contains(&FormId(10)));
+        // back to nothing: every slot is cleared
+        super::super::apply::reconcile(&mut b, &Fields::new(), Default::default());
+        assert!(b.faction_relations.is_empty() && b.faction_crimes.is_empty());
+        assert!(b.crime_enemies.is_empty() && b.discovered.is_empty());
+        assert_eq!((b.player_crimes, b.player_murderer), ((0, 0), false));
     }
 
     #[test]

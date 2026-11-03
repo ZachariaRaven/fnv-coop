@@ -22,6 +22,8 @@ pub enum Out {
     None,
     /// Put the physical player here (feet).
     Teleport([f32; 3]),
+    /// Turn the physical player to this heading, radians (the mouse look).
+    Face(f32),
     /// A verb the bot does not know (the viewer prints the same note).
     Unknown(String),
 }
@@ -114,6 +116,11 @@ pub fn run_line(line: &str, d: &Data, gs: &mut GameState, s: &mut Session, cx: C
                 .push((kind, arg(3).and_then(|w| w.parse().ok()).unwrap_or(0)));
         }
         Some("say") => s.live_intent(Intent::Say(words[2..].join(" "))),
+        // fault injection: garble one record of this guest's replicated store
+        // (the hash exchange must find it, the host must repair it)
+        Some("desync") => {
+            s.inject_desync();
+        }
         Some("travel") => {
             if let Some(m) = f(2) {
                 let marker = world::map::MapMarker {
@@ -170,6 +177,13 @@ pub fn run_line(line: &str, d: &Data, gs: &mut GameState, s: &mut Session, cx: C
         }
         Some("skip") => gs.coop_scene_skip(arg(2) != Some("no")),
         Some("vote") => s.live_intent(Intent::Answer(arg(2) != Some("no"))),
+        // `coop button N`: the local player presses button N of the open message box (the
+        // viewer's message menu sets the same field, `game_menus::message::after`)
+        Some("button") => {
+            if let Some(b) = arg(2).and_then(|w| w.parse::<i32>().ok()) {
+                gs.button = Some(b);
+            }
+        }
         Some("initiate") => {
             // a player starts the dialogue or activation of a quest (the policy's initiator)
             let q = arg(2)
@@ -203,12 +217,19 @@ pub fn run_line(line: &str, d: &Data, gs: &mut GameState, s: &mut Session, cx: C
                 return Out::Teleport([x, y, z]);
             }
         }
+        Some("face") => {
+            // `coop face DEG`: the player turns to that heading (degrees clockwise from north)
+            if let Some(deg) = arg(2).and_then(|w| w.parse::<f32>().ok()) {
+                return Out::Face(deg.to_radians().rem_euclid(std::f32::consts::TAU));
+            }
+        }
         Some("cell") => {
             // `coop cell CELL`: the player's scene becomes that cell (an editor id or a hex form id;
             // the cell need not exist: the live layer only sees the id)
             if let Some(c) = f(2) {
                 gs.player_cell = Some(c);
-                gs.player_world = None;
+                // an exterior cell is in its worldspace, as the viewer has it
+                gs.player_world = d.world_of_cell(c);
             }
         }
         Some("ff") => s.live_friendly_fire(n(2) as u8),
@@ -328,6 +349,9 @@ pub struct TalkBot {
     npc: Option<FormId>,
     /// Counters for the dump.
     pub opened: bool,
+    /// The menu stays up after the first line (a script's conversation the
+    /// player has not left).
+    pub stay: bool,
 }
 
 impl Default for TalkBot {
@@ -336,6 +360,7 @@ impl Default for TalkBot {
             step: Step::Idle,
             npc: None,
             opened: false,
+            stay: false,
         }
     }
 }
@@ -401,7 +426,9 @@ impl TalkBot {
                 self.step = Step::Closed;
             }
             Step::Closed if dv.is_some_and(|x| x.playing.is_none()) => {
-                s.live_intent(Intent::DialogueClose);
+                if !self.stay {
+                    s.live_intent(Intent::DialogueClose);
+                }
                 self.step = Step::Idle;
             }
             _ => {}

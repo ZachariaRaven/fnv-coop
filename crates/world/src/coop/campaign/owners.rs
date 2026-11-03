@@ -132,6 +132,43 @@ pub fn recruit(order: &LoadOrder, gs: &mut GameState, slot: u8, npc: FormId) -> 
     })
 }
 
+/// Host, every frame: a follower comes along when its owner's player stands
+/// in another place. Each game runs `companions::come_along` for its own
+/// player only, and the host's parked shadows hold the other players'
+/// followers, so the host moves those. `place` turns an owner's filed
+/// place (an interior cell, or outdoors the worldspace) and position into
+/// (space, cell). Returns the followers moved.
+pub fn follow_owners(
+    order: &LoadOrder,
+    scripts: &crate::scripting::ScriptCache,
+    gs: &mut GameState,
+    place: &mut dyn FnMut(FormId, [f32; 3]) -> Option<(FormId, FormId)>,
+) -> Vec<FormId> {
+    let mut want = Vec::new();
+    for sh in gs.coop.bank.parked.values() {
+        let (Some(space), Some(pos)) = (sh.cell, sh.position) else {
+            continue;
+        };
+        let (pos, heading) = (pos.map(f32::from_bits), f32::from_bits(sh.heading));
+        want.extend(sh.teammates.iter().map(|t| (*t, space, pos, heading)));
+    }
+    let mut moved = Vec::new();
+    for (who, space, pos, heading) in want {
+        // only a change of place: in the same place the follower's AI follows
+        match gs.place(order, who) {
+            Some(p) if p.0 != space => {}
+            _ => continue,
+        }
+        let Some((space, cell)) = place(space, pos) else {
+            continue;
+        };
+        if crate::companions::bring_teammate(order, scripts, gs, who, (space, cell, pos, heading)) {
+            moved.push(who);
+        }
+    }
+    moved
+}
+
 /// Dismisses `npc` from its owner when `slot` may.
 pub fn dismiss(gs: &mut GameState, slot: u8, npc: FormId) -> bool {
     if !command_ok(gs, slot, npc, CompanionOp::Dismiss) {

@@ -304,8 +304,9 @@ fn an_aid_item_is_used_up_by_the_player_who_used_it() {
             a != b || a == 0.0,
             "{profile}: effects stay with the user ({a} vs {b})"
         );
+        // the verdict travels apart from the item record: under loss it can come later
         assert!(
-            r.results(0).iter().any(|x| x.0 == "use" && x.1),
+            r.until(60_000, |r| r.results(0).iter().any(|x| x.0 == "use" && x.1)),
             "{profile}: verdict"
         );
         r.run_ms(500);

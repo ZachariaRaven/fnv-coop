@@ -921,7 +921,7 @@ fn net_join_service_codes(_env: &Env, mutate: bool) -> Result<String, String> {
         ));
     }
     Ok(format!(
-        "PARTIAL, resolve NOT proven (needs code): the game parses {CODE_LEN}-character codes over the service's {}-symbol alphabet (look-alikes and wrong lengths refused), but it never calls the join service and refuses a short code: \"{why}\"",
+        "the game parses {CODE_LEN}-character codes over the service's {}-symbol alphabet (look-alikes and wrong lengths refused); with no join service set it refuses a short code and names the service: \"{why}\" (the resolve itself: net_join_service_resolve)",
         CODE_ALPHABET.len()
     ))
 }

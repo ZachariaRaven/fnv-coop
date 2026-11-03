@@ -256,6 +256,8 @@ fn full_session_rejects_extra_guest() {
         sim.guests[1].sync.phase(),
         GuestPhase::Rejected(RejectReason::Full)
     );
+    // the host counts the refusal once, however often the hello came
+    assert_eq!(sim.host.full_refusals, 1);
 }
 
 #[test]

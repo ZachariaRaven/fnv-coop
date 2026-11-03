@@ -19,6 +19,8 @@
 //!   The feature `steam-mock` compiles only the DLL-free part (the `SteamApi`
 //!   trait, `MockSteam` and `SteamBackend`) for test rigs.
 //! * [`join`]: copy/paste join codes.
+//! * [`joinsvc`]: the join service client (six character short codes for
+//!   `NVRS-` codes) over `curl.exe` (HTTPS) or plain HTTP.
 //!
 //! # Extension point: iroh / QUIC
 //!
@@ -43,6 +45,7 @@ pub mod clock;
 pub mod endpoint;
 pub mod framing;
 pub mod join;
+pub mod joinsvc;
 pub mod liveness;
 pub mod mem;
 pub mod udp;

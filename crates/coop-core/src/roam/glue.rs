@@ -66,7 +66,8 @@ impl HostRoam {
         pos: [f32; 3],
     ) -> Vec<(Audience, Msg)> {
         let d: CellDelta = self.model.update_peer(from, cell, pos);
-        if !d.moved_home {
+        // outdoors a new grid square changes the loaded set, not the home
+        if d.is_empty() {
             return vec![];
         }
         self.model.apply_interest(interest);

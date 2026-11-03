@@ -1,6 +1,6 @@
 {
   "name": "live_two_cells_dlc_dead_money",
-  "description": "Dead Money: one peer in the Sierra Madre Villa, one on the casino floor. Both start in the Villa police station. The host leads the party out into the Villa (NVDLC01Villa). The guest walks to the Sierra Madre Casino floor (NVDLC01Casino) and hits a hologram there. Each peer must own and run the people of its own cell, the host must count the guest's people as the guest's, and neither peer may mirror the other cell's people. After the split the host sets CG03TestValue and the guest asks the host to set DemoVatsCameraGlobal: both values must reach both peers, and the shared hash must agree. A `coop hit NAME 1` line hits that person once for 1 point. The line also names the person, so the simulator loads it (the viewer loads the whole cell). Headless only: the viewer bot has no `coop cell` verb.",
+  "description": "Dead Money: one peer in the Sierra Madre Villa, one on the casino floor. Both start in the Villa police station. The host leads the party out into the Villa (NVDLC01Villa) and walks to a harvester (-6292, 10283), so the harvester is in the host's loaded grid. The guest walks to the Sierra Madre Casino floor (NVDLC01Casino) and hits a hologram there. Each peer must own and run the people of its own cell, the host must count the guest's people as the guest's, and neither peer may mirror the other cell's people. After the split the host sets CG03TestValue and the guest asks the host to set DemoVatsCameraGlobal: both values must reach both peers, and the shared hash must agree. A `coop hit NAME 1` line hits that person once for 1 point. The line also names the person, so the simulator loads it (the viewer loads the whole cell). Headless only: the viewer bot has no `coop cell` verb.",
   "cell": "NVDLC01PoliceStation",
   "network": "good_wifi",
   "seed": 73,
@@ -8,6 +8,7 @@
   "settle_s": 5,
   "host": { "script": [
     {"at": 2, "run": "coop enter NVDLC01PoliceStateFrontIntDoorREF NVDLC01PoliceStation 00000001"},
+    {"at": 5, "run": "coop teleport -6200 10200 1016"},
     {"at": 7, "run": "coop hit NVDLC01InitialVillaHarvester01REF 1"},
     {"at": 8, "run": "set CG03TestValue to 7"}
   ] },

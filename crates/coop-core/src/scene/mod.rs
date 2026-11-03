@@ -364,6 +364,32 @@ impl ClockSnap {
     }
 }
 
+/// Most image space modifiers the host keeps on for late joiners.
+pub const MAX_IMODS: usize = 32;
+
+/// What a host script shows or plays, for every other player to see and
+/// hear (G39): the host's game showed it already.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Cue {
+    /// An image space modifier (a fade, a flash, a blur) on or off.
+    ImageSpace {
+        /// The modifier (`IMAD` form id).
+        form: u32,
+        /// On (applied) or off (removed).
+        on: bool,
+    },
+    /// A sound (`SOUN` form id).
+    Sound {
+        /// The sound.
+        form: u32,
+    },
+    /// A music track (`MUSC` form id).
+    Music {
+        /// The track.
+        form: u32,
+    },
+}
+
 /// Scene and time messages (all reliable and ordered).
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SceneMsg {
@@ -451,6 +477,14 @@ pub enum SceneMsg {
     Join {
         /// Scene id.
         id: u32,
+    },
+    /// Host: a host script's presentation. A peer shows each event once;
+    /// event 0 replays a modifier that stays on (a late joiner, a rejoin).
+    Present {
+        /// Event id (0: a replay of a standing modifier).
+        event: u32,
+        /// What to show or play.
+        cue: Cue,
     },
 }
 
@@ -540,6 +574,21 @@ mod tests {
             SceneMsg::Done { id: 3 },
             SceneMsg::SkipVote { id: 3, yes: true },
             SceneMsg::Join { id: 3 },
+            SceneMsg::Present {
+                event: 4,
+                cue: Cue::ImageSpace {
+                    form: 0x174411,
+                    on: true,
+                },
+            },
+            SceneMsg::Present {
+                event: 5,
+                cue: Cue::Sound { form: 0x177F9E },
+            },
+            SceneMsg::Present {
+                event: 6,
+                cue: Cue::Music { form: 0x171B4A },
+            },
         ];
         for m in msgs {
             let msg = Msg::Scene(m);
