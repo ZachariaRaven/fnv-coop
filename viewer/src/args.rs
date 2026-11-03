@@ -742,17 +742,19 @@ pub fn parse(args: &[String]) -> Result<Option<Args>, String> {
             "--coop-allow-mismatch" => coop.allow_mismatch = true,
             "--coop-difficulty" => {
                 let v = value("--coop-difficulty")?;
-                let mode = world::coop::party_save::PartyRules::parse_mode(&v).ok_or_else(|| {
-                    format!("--coop-difficulty expects normal or balanced, got '{v}'")
-                })?;
+                let mode =
+                    world::coop::party_save::PartyRules::parse_mode(&v).ok_or_else(|| {
+                        format!("--coop-difficulty expects normal or balanced, got '{v}'")
+                    })?;
                 coop.rules.get_or_insert_with(Default::default).mode = mode;
             }
             "--coop-friendly-fire" => {
                 let v = value("--coop-friendly-fire")?;
-                let on = world::coop::party_save::PartyRules::parse_switch(&v).ok_or_else(|| {
-                    format!("--coop-friendly-fire expects on or off, got '{v}'")
-                })?;
-                coop.rules.get_or_insert_with(Default::default).friendly_fire = on;
+                let on = world::coop::party_save::PartyRules::parse_switch(&v)
+                    .ok_or_else(|| format!("--coop-friendly-fire expects on or off, got '{v}'"))?;
+                coop.rules
+                    .get_or_insert_with(Default::default)
+                    .friendly_fire = on;
             }
             "--coop-voice" => {
                 let v = value("--coop-voice")?;
@@ -1631,13 +1633,19 @@ mod tests {
             h.coop.rules.map(|r| (r.mode_name(), r.friendly_fire)),
             Some(("normal", true))
         );
-        let h = parse(&strings(&["D", "C", "--coop-host"])).unwrap().unwrap();
-        assert_eq!(h.coop.rules, None, "no flag: the save's rules or the default");
+        let h = parse(&strings(&["D", "C", "--coop-host"]))
+            .unwrap()
+            .unwrap();
+        assert_eq!(
+            h.coop.rules, None,
+            "no flag: the save's rules or the default"
+        );
         let err = |a: &[&str]| parse(&strings(a)).unwrap_err();
         assert!(err(&["D", "C", "--coop-host", "--coop-difficulty", "hard"])
             .contains("normal or balanced"));
-        assert!(err(&["D", "--coop-join", "h", "--coop-friendly-fire", "on"])
-            .contains("for the host"));
+        assert!(
+            err(&["D", "--coop-join", "h", "--coop-friendly-fire", "on"]).contains("for the host")
+        );
     }
 
     #[test]

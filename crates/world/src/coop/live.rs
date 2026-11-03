@@ -222,10 +222,11 @@ pub struct ActorPump {
 }
 
 impl ActorPump {
-    /// Guest: an actor this machine now owns starts where the host's ledger
-    /// had it (the `Assign` seed). A host script that moved it (`MoveTo`)
-    /// did not move it here, and the owner must not publish the old place.
-    /// The host does not call this: its world already has every place.
+    /// Guest: an actor this machine now owns, but has in another place than
+    /// the host's ledger (the `Assign` seed), moves to the ledger's place. A
+    /// host script that moved it to another cell (`MoveTo`) did not move it
+    /// here, and the owner must not publish the old place. The host does not
+    /// call this: its world already has every place.
     pub fn take_over(&mut self, cx: Ctx, gs: &mut GameState, client: &ActorClient, me: PlayerId) {
         self.taken.retain(|id, _| client.owns(*id));
         for (id, rec) in client.iter() {
@@ -242,7 +243,8 @@ impl ActorPump {
                 dequant_pos(st.pos[1]),
                 dequant_pos(st.pos[2]),
             ];
-            let Some(to) = self.places.resolve(cx.order, FormId(st.cell.0), pos) else {
+            // in the same place the previous owner's stream already moved it
+            let Some(to) = self.place_of(cx.order, gs, a, FormId(st.cell.0), pos) else {
                 continue;
             };
             gs.spaces.insert(a, to);
@@ -323,6 +325,18 @@ impl ActorPump {
                     if let Some(h) = crate::combat::health(cx.order, gs, a) {
                         if h > f64::from(st.health) + 0.5 {
                             replay(cx, gs, a, h - f64::from(st.health), FormId(0));
+                        } else if !me.is_host() && h + 0.5 < f64::from(st.health) {
+                            // the host raised it (`ActorMsg::Healed`); the host's
+                            // own world raised it first
+                            let raise = f64::from(st.health) - h;
+                            crate::magic::change(
+                                cx.order,
+                                gs,
+                                a,
+                                crate::combat::av::HEALTH,
+                                raise,
+                                a,
+                            );
                         }
                     }
                 }
@@ -369,6 +383,10 @@ pub struct LiveHostAdapter {
     next_loot_ms: u64,
     /// Guest hit requests that wait for the friendly-fire guard.
     held_hits: Vec<(PlayerId, Msg)>,
+    /// Each actor's world health after the last frame's verdicts.
+    last_health: BTreeMap<FormId, f64>,
+    /// Raised health the ledger has not taken yet (less than a point).
+    heal_carry: BTreeMap<FormId, f64>,
 }
 
 impl Default for LiveHostAdapter {
@@ -395,6 +413,8 @@ impl LiveHostAdapter {
             announced: BTreeSet::new(),
             next_loot_ms: 0,
             held_hits: Vec::new(),
+            last_health: BTreeMap::new(),
+            heal_carry: BTreeMap::new(),
         }
     }
 
@@ -497,6 +517,47 @@ impl LiveHostAdapter {
     /// The guest hit requests that pass the friendly-fire guard (G40). A
     /// guest's machine has no policy gate, and the host applies a guest's
     /// hit as a verdict without hooks, so the guard runs here, by slot.
+    /// Health the host's world gained since the last frame goes to the
+    /// ledger (a script's `ForceActorValue Health`, a heal). Without this the
+    /// next verdict takes the raise back. A drop came with this frame's
+    /// hurts (`dealt`), and the ledger has those already.
+    fn raises(
+        &mut self,
+        cx: Ctx,
+        gs: &GameState,
+        live: &mut HostLive,
+        dealt: &BTreeMap<FormId, f64>,
+    ) -> Outs {
+        let mut outs = Vec::new();
+        for (id, rec) in self.own.actors.iter() {
+            let a = wf(*id);
+            if !rec.alive || gs.dead.contains(&a) || super::facts::player_of(a).is_some() {
+                continue;
+            }
+            let (Some(now), Some(&last)) = (
+                crate::combat::health(cx.order, gs, a),
+                self.last_health.get(&a),
+            ) else {
+                continue;
+            };
+            let gain = now - last + dealt.get(&a).copied().unwrap_or(0.0);
+            if gain <= 0.0 {
+                continue;
+            }
+            let carry = self.heal_carry.entry(a).or_insert(0.0);
+            *carry += gain;
+            let points = carry.round().min(f64::from(u16::MAX));
+            if points < 1.0 {
+                continue;
+            }
+            *carry -= points;
+            for o in live.actors.heal(*id, points as u16) {
+                outs.extend(live.route_extern(o.aud, Msg::Actor(o.msg)));
+            }
+        }
+        outs
+    }
+
     fn guarded_hits(&mut self, cx: Ctx, gs: &mut GameState) -> Vec<(PlayerId, Msg)> {
         let mut pass = Vec::new();
         for (from, m) in std::mem::take(&mut self.held_hits) {
@@ -548,6 +609,10 @@ impl LiveHostAdapter {
         gs.coop.live.scaling = Some(live.rules.scaling(now_ms));
         // damage the host dealt itself goes through the one ledger
         let hurts = std::mem::take(&mut gs.coop.live.hurts);
+        let mut dealt: BTreeMap<FormId, f64> = BTreeMap::new();
+        for h in &hurts {
+            *dealt.entry(h.who).or_insert(0.0) += h.amount;
+        }
         let me = gs.active_slot();
         let (mine, npcs): (Vec<_>, Vec<_>) = hurts.into_iter().partition(|h| {
             super::campaign::attribution::slot_of(h.by, me) == Some(me)
@@ -571,6 +636,7 @@ impl LiveHostAdapter {
         for (from, m) in self.guarded_hits(cx, gs) {
             outs.extend(live.on_msg(from, m, now_ms, auth));
         }
+        outs.extend(self.raises(cx, gs, live, &dealt));
         // a guest's dialogue picks: the line's conditions as the picker, then the sessions
         outs.extend(self.dialogue.check_picks(cx, gs, live, auth, now_ms));
         self.adopt_reported(cx, gs, live);
@@ -611,18 +677,20 @@ impl LiveHostAdapter {
         // NPC blows the ledger did not apply (a dead or unknown victim) expire
         gs.coop.campaign.unattributed.clear();
         self.pump.apply(cx, gs, &self.own.actors, PlayerId::HOST);
+        self.last_health = self
+            .own
+            .actors
+            .iter()
+            .filter_map(|(id, _)| Some((wf(*id), crate::combat::health(cx.order, gs, wf(*id))?)))
+            .collect();
         self.dialogue.poll_lines(gs, &self.own.dialogue);
         self.dialogue
             .note_refusals(cx, gs, &self.own.dialogue, now_ms);
         // people host scripts made talk: a dialogue scene, or the line for everyone
-        outs.extend(self.dialogue.forced_frame(
-            cx,
-            gs,
-            live,
-            auth,
-            &mut self.own.dialogue,
-            now_ms,
-        ));
+        outs.extend(
+            self.dialogue
+                .forced_frame(cx, gs, live, auth, &mut self.own.dialogue, now_ms),
+        );
         for m in self.rules.local_frame(cx, gs, &mut self.own.rules) {
             outs.extend(live.on_msg(PlayerId::HOST, m, now_ms, auth));
         }

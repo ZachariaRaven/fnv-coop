@@ -444,7 +444,10 @@ mod tests {
         let d = m.update_peer(p(0), w, cell(1.0, 1.0));
         assert!(d.moved_home);
         assert_eq!(d.entered.len(), 17, "the worldspace and 16 grid cells");
-        assert!(m.update_peer(p(0), w, cell(1.2, 1.0)).is_empty(), "same square");
+        assert!(
+            m.update_peer(p(0), w, cell(1.2, 1.0)).is_empty(),
+            "same square"
+        );
         let d = m.update_peer(p(0), w, cell(2.0, 1.0));
         assert!(!d.moved_home && d.entered.len() == 4, "one column in");
         m.update_peer(p(1), w, cell(7.0, 7.0));

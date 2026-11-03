@@ -859,7 +859,12 @@ pub fn caravan_act(npc: FormId, stake: i32, won: bool) -> Act {
 }
 
 /// A casino game's closing as an act (`Act::Casino`).
-pub fn casino_act(casino: FormId, chips: i32, data: crate::casino::CasinoData, new_level: bool) -> Act {
+pub fn casino_act(
+    casino: FormId,
+    chips: i32,
+    data: crate::casino::CasinoData,
+    new_level: bool,
+) -> Act {
     Act::Casino {
         casino: cf(casino),
         chips: chips.max(0) as u32,

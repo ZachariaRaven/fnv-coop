@@ -84,9 +84,10 @@ impl DialogueHost {
     /// The step stays open, no script runs, and only the picker is told.
     /// A pick the table would ignore anyway gets no answer.
     pub fn refuse(&mut self, from: PlayerId, session: u32, step: u32, choice: u32) -> Vec<DOut> {
-        let open = self.sessions.get(&session).is_some_and(|s| {
-            s.initiator == from && s.playing.is_none() && step == s.step + 1
-        });
+        let open = self
+            .sessions
+            .get(&session)
+            .is_some_and(|s| s.initiator == from && s.playing.is_none() && step == s.step + 1);
         if !open {
             return vec![];
         }

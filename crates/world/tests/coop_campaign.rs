@@ -866,7 +866,10 @@ mod lifecycle {
             "the live rules hear of a down that is not revivable"
         );
         assert!(!downed::revivable(&r.host, 1));
-        assert!(!downed::revive(&mut r.host, 1), "a collar death is not revivable");
+        assert!(
+            !downed::revive(&mut r.host, 1),
+            "a collar death is not revivable"
+        );
         assert!(r.host.coop.campaign.down.down.contains_key(&1));
         // an ordinary down is revivable
         let out = downed::script_down(&mut r.host, 2, None);

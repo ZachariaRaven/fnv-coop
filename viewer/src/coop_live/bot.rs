@@ -108,6 +108,8 @@ pub fn run(
     mut player: ResMut<crate::walk::Player>,
     mut book: ResMut<super::hud_social::Book>,
     mut live: ResMut<super::LiveNow>,
+    mut answers: ResMut<crate::game_menus::AnswerBoxes>,
+    mut say: ResMut<crate::dialogue::AutoSay>,
 ) {
     let t = time.elapsed_secs();
     if bot.queue.iter().all(|(at, _)| *at > t) {
@@ -154,6 +156,11 @@ pub fn run(
             }
             Some("linedone") => link.0.live_intent(Intent::DialogueLineDone),
             Some("close") => link.0.live_intent(Intent::DialogueClose),
+            // `coop topic TEXT`: the local player picks a topic in the game's
+            // dialogue menu, the first offered one whose text contains TEXT,
+            // as soon as the menu offers topics (the `--say` pick, timed).
+            // `coop topic Goodbye.` ends a conversation as a player does.
+            Some("topic") if words.len() > 2 => say.0.push_back(words[2..].join(" ")),
             Some("lootopen") => {
                 if let Some(c) = f(2) {
                     gs.coop_loot(LootOp::Open(c));
@@ -306,11 +313,13 @@ pub fn run(
             }
             Some("skip") => gs.coop_scene_skip(arg(2) != Some("no")),
             Some("vote") => link.0.live_intent(Intent::Answer(arg(2) != Some("no"))),
-            // `coop button N`: the local player presses button N of the open message box
-            // (the message menu sets the same field, `game_menus::message::after`)
+            // `coop button N`: the local player clicks button N of the message box
+            // (the open one, else the next one with more than one button). The
+            // click closes the menu, and `game_menus::message::after` sets the
+            // button that GetButtonPressed reads.
             Some("button") => {
-                if let Some(b) = arg(2).and_then(|w| w.parse::<i32>().ok()) {
-                    gs.button = Some(b);
+                if let Some(b) = arg(2).and_then(|w| w.parse::<usize>().ok()) {
+                    answers.choices.push_back(b);
                 }
             }
             Some("initiate") => {

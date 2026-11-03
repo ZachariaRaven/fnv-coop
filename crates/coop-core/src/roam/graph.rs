@@ -242,12 +242,21 @@ mod tests {
         let near = [7.5 * CELL_SIZE, 3.5 * CELL_SIZE, 0.0];
         let far = [8.5 * CELL_SIZE, 5.5 * CELL_SIZE, 0.0];
         assert!(g.sees(w, at, w, near));
-        assert!(!g.sees(w, at, w, far), "three squares away is another scene");
+        assert!(
+            !g.sees(w, at, w, far),
+            "three squares away is another scene"
+        );
         assert!(g.sees(CellId(1000 + 55), at, w, near), "a grid-cell home");
-        assert!(!g.sees(CellId(5), at, w, near), "an interior sees no exterior");
+        assert!(
+            !g.sees(CellId(5), at, w, near),
+            "an interior sees no exterior"
+        );
         let mut g = g;
         g.link(CellId(5), CellId(1000 + 55));
-        assert!(g.loaded_at(w, at).contains(&CellId(5)), "a door under the player");
+        assert!(
+            g.loaded_at(w, at).contains(&CellId(5)),
+            "a door under the player"
+        );
         assert!(!g.loaded_at(w, far).contains(&CellId(5)));
     }
 }

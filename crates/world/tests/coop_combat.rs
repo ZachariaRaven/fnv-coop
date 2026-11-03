@@ -784,3 +784,72 @@ fn single_player_pays_nothing() {
     let c = &g.coop.live.combat;
     assert!(c.npc_hits.is_empty() && c.pvp_hits.is_empty() && c.puppets.is_empty());
 }
+
+#[test]
+fn a_health_raise_on_the_host_stays_and_reaches_the_guests() {
+    let (_d, order) = order("cc-heal");
+    let scripts = ScriptCache::default();
+    let mut r = Rig::new(&order, &scripts, "perfect", 5);
+    r.settled();
+    let gecko = FormId(GECKO_REF);
+    let hp = |g: &GameState| world::combat::health(&order, g, gecko).unwrap();
+    let ledger = |r: &Rig, i: usize| {
+        r.sim.guests[i]
+            .sync
+            .live
+            .actors
+            .iter()
+            .find(|(id, _)| id.0 == GECKO_REF)
+            .and_then(|(_, rec)| rec.state)
+            .map(|s| f64::from(s.health))
+    };
+    let full = hp(&r.host);
+    // a guard bites the gecko on the host: everyone loses 10
+    world::combat::hurt(&order, &mut r.host, gecko, 10.0, FormId(GUARD_REF));
+    r.run_ms(2_000);
+    for (i, g) in std::iter::once(&r.host).chain(r.guests.iter()).enumerate() {
+        assert!(
+            (hp(g) - (full - 10.0)).abs() < 1.0,
+            "machine {i} after the bite: {}",
+            hp(g)
+        );
+    }
+    // a host script gives the 10 back (RestoreActorValue Health 10)
+    world::magic::change(&order, &mut r.host, gecko, 16, 10.0, gecko);
+    r.run_ms(2_000);
+    for (i, g) in std::iter::once(&r.host).chain(r.guests.iter()).enumerate() {
+        assert!(
+            (hp(g) - full).abs() < 1.0,
+            "machine {i} after the heal: {} of {full}",
+            hp(g)
+        );
+    }
+    // a host script raises it to 5000 (ForceActorValue Health 5000)
+    r.host.actor_values.insert((gecko, 16), 5000.0);
+    r.run_ms(2_000);
+    assert!((hp(&r.host) - 5000.0).abs() < 1.0, "host: {}", hp(&r.host));
+    for i in 0..2 {
+        let l = ledger(&r, i).unwrap();
+        assert!((l - 5000.0).abs() < 1.0, "guest {i} ledger: {l}");
+    }
+    // a guest's hit starts from the raise and does not kill it
+    world::combat::hurt(&order, &mut r.guests[0], gecko, 100.0, PLAYER_REF);
+    r.run_ms(2_000);
+    let after = hp(&r.host);
+    assert!(
+        after < 4990.0 && after > 4800.0,
+        "host after the guest's hit: {after}"
+    );
+    assert!(!r.host.dead.contains(&gecko));
+    for i in 0..2 {
+        assert!(
+            !r.guests[i].dead.contains(&gecko),
+            "guest {i} keeps it alive"
+        );
+        let l = ledger(&r, i).unwrap();
+        assert!(
+            (l - after).abs() < 1.0,
+            "guest {i} ledger {l}, host {after}"
+        );
+    }
+}

@@ -563,3 +563,61 @@ fn override_does_not_admit_a_protocol_mismatch() {
         GuestPhase::Rejected(RejectReason::ProtocolMismatch)
     );
 }
+
+#[test]
+fn recent_roots_match_a_lagging_guest_at_its_own_revision() {
+    use crate::hash::ShardHashes;
+    let mut sim = Sim::new(1, profile("bad_wifi"), 77);
+    sim.start_guest(0);
+    sim.run(100, 2);
+    assert!(sim.run_until_converged(60_000));
+    let (mut behind, mut checked) = (0, 0);
+    for _ in 0..300 {
+        sim.run(1, 3);
+        let g = &sim.guests[0].sync.store;
+        if g.base() != g.rev() {
+            continue;
+        }
+        let points = sim.host.recent_roots(u64::MAX, &|_| true);
+        assert_eq!(points[0].0, sim.host.store.rev());
+        let ours = ShardHashes::compute(g).root();
+        let at = points.iter().find(|(r, _)| *r == g.rev());
+        assert_eq!(at.map(|p| p.1), Some(ours), "guest rev {:?}", g.rev());
+        checked += 1;
+        if g.rev() < sim.host.store.rev() {
+            behind += 1;
+        }
+    }
+    assert!(
+        checked > 50 && behind > 10,
+        "checked {checked}, behind {behind}"
+    );
+    // a field the filter drops does not count at any revision
+    let skip = |f: &Field| !matches!(f, Field::QuestStage { .. });
+    let points = sim.host.recent_roots(u64::MAX, &skip);
+    let mut kept = StateStore::new();
+    for e in sim
+        .host
+        .store
+        .entries()
+        .into_iter()
+        .filter(|e| skip(&e.field))
+    {
+        kept.write_local(e.form, e.field);
+    }
+    assert_eq!(points[0].1, ShardHashes::compute(&kept).root());
+}
+
+#[test]
+fn recent_roots_stop_at_a_write_the_host_did_not_log() {
+    let mut sim = Sim::new(1, profile("perfect"), 78);
+    sim.run(10, 2);
+    assert!(sim.host.recent_roots(u64::MAX, &|_| true).len() > 10);
+    sim.host
+        .store
+        .write_local(FormId(0x0700_0001), Field::QuestStage { stage: 5 });
+    assert_eq!(sim.host.recent_roots(u64::MAX, &|_| true).len(), 1);
+    sim.host
+        .write(FormId(0x0700_0001), Field::QuestStage { stage: 6 });
+    assert_eq!(sim.host.recent_roots(u64::MAX, &|_| true).len(), 2);
+}

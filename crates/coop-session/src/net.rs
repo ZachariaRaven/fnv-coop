@@ -193,25 +193,33 @@ pub fn open(role: Role, name: &str, addr: &str) -> Result<(Box<dyn Transport>, L
             Endpoint::host(b, DIRECT_TOKEN, cfg)
         }
         Role::Guest => {
-            let (target, token) = match crate::target::JoinTarget::parse(addr).map_err(Error::Target)? {
-                crate::target::JoinTarget::Addr(a) => (resolve(&a)?, DIRECT_TOKEN),
-                crate::target::JoinTarget::Packed(c) => {
-                    let code: JoinCode = c.parse().map_err(|e| Error::Target(format!("{e}")))?;
-                    match code.target {
-                        NetTarget::Direct(a) => (a, code.token),
-                        _ => return Err(Error::Target("this join code names a Steam lobby; this build joins by address".into())),
+            let (target, token) =
+                match crate::target::JoinTarget::parse(addr).map_err(Error::Target)? {
+                    crate::target::JoinTarget::Addr(a) => (resolve(&a)?, DIRECT_TOKEN),
+                    crate::target::JoinTarget::Packed(c) => {
+                        let code: JoinCode =
+                            c.parse().map_err(|e| Error::Target(format!("{e}")))?;
+                        match code.target {
+                            NetTarget::Direct(a) => (a, code.token),
+                            _ => return Err(Error::Target(
+                                "this join code names a Steam lobby; this build joins by address"
+                                    .into(),
+                            )),
+                        }
                     }
-                }
-                crate::target::JoinTarget::Code(c) => {
-                    // the join service the environment names resolves it to an NVRS- code
-                    let req = crate::link::LinkRequest::new(role, name, addr);
-                    let code = crate::link::resolve_short_code(&req, &c)?;
-                    match code.target {
-                        NetTarget::Direct(a) => (a, code.token),
-                        _ => return Err(Error::Target("this join code names a Steam lobby; this build joins by address".into())),
+                    crate::target::JoinTarget::Code(c) => {
+                        // the join service the environment names resolves it to an NVRS- code
+                        let req = crate::link::LinkRequest::new(role, name, addr);
+                        let code = crate::link::resolve_short_code(&req, &c)?;
+                        match code.target {
+                            NetTarget::Direct(a) => (a, code.token),
+                            _ => return Err(Error::Target(
+                                "this join code names a Steam lobby; this build joins by address"
+                                    .into(),
+                            )),
+                        }
                     }
-                }
-            };
+                };
             let b = UdpBackend::guest(target, token, UdpConfig::default()).map_err(io)?;
             Endpoint::guest(b, token, cfg)
         }

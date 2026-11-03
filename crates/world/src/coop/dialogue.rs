@@ -13,7 +13,9 @@ use coop_core::authority::AuthorityTable;
 use coop_core::dialogue::{DialogueClient, DialogueEvent, DialogueMsg};
 use coop_core::ids::{FormId as CForm, PlayerId};
 use coop_core::proto::Msg;
-use coop_core::scene::{BarrierRule, CameraMode, EndReason, Locks, Mask, SceneKind, SceneSpec, SkipRule};
+use coop_core::scene::{
+    BarrierRule, CameraMode, EndReason, Locks, Mask, SceneKind, SceneSpec, SkipRule,
+};
 use coop_core::sync::HostLive;
 use esm::FormId;
 
@@ -145,7 +147,13 @@ impl DialogueBridge {
     /// Every machine, every frame: how many of this machine's picks the
     /// host refused (the menu shows the line as not taken), and what the
     /// frames and the world clock did while another player talked.
-    pub fn note_refusals(&mut self, cx: Ctx, gs: &mut GameState, client: &DialogueClient, now_ms: u64) {
+    pub fn note_refusals(
+        &mut self,
+        cx: Ctx,
+        gs: &mut GameState,
+        client: &DialogueClient,
+        now_ms: u64,
+    ) {
         let t = &mut gs.coop.live.scene.talk;
         t.refusals = client.refused;
         let days = gs.global(cx.order, "GameDaysPassed");
@@ -519,7 +527,13 @@ fn dialogue_spec(gs: &GameState, live: &HostLive, speaker: FormId) -> SceneSpec 
 
 /// Whether player `from` may pick `choice` with `npc`: the line exists and
 /// its conditions pass with the picker's own rows (skills, items, quests).
-fn pick_allowed(cx: Ctx, gs: &mut GameState, from: PlayerId, npc: Option<FormId>, choice: FormId) -> bool {
+fn pick_allowed(
+    cx: Ctx,
+    gs: &mut GameState,
+    from: PlayerId,
+    npc: Option<FormId>,
+    choice: FormId,
+) -> bool {
     let Some(info) = Info::load(cx.order, choice) else {
         return false;
     };

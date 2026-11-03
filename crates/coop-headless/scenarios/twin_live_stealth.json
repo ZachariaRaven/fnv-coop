@@ -1,6 +1,6 @@
 {
   "name": "twin_live_stealth",
-  "description": "MUTATION TWIN of live_stealth: the guest sneaks at 10 s as well, so no player is left in plain sight and the party value drops with the best-seen player. Marked expect_fail.",
+  "description": "MUTATION TWIN of live_stealth: the guest sneaks at 10 s as well, so no player is left in plain sight and the party value drops with the best-seen player. Marked expect_fail. At 1.5 s the host makes gecko 1 a ghost (SetGhost 1): in the real game the gecko and Doc Mitchell fight on sight, and a detector in combat sees much less, so the probe would not measure plain stealth.",
   "cell": "GSDocMitchellHouse",
   "network": "good_wifi",
   "seed": 70,
@@ -8,6 +8,10 @@
   "settle_s": 4,
   "host": {
     "script": [
+      {
+        "at": 1.5,
+        "run": "VCG02Gecko1REF.SetGhost 1"
+      },
       {
         "at": 2,
         "run": "VCG02Gecko1REF.Enable"

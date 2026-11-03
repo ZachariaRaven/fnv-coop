@@ -377,14 +377,23 @@ fn a_guests_map_marker_find_is_kept_once_and_the_partys_find_unlocks_travel() {
     guest.set_authority(Authority::Guest);
     // a guest's find goes to the host: it is kept here once, not written
     // into the shared state the host's copy replaces
-    assert_eq!(world::map::discover(&order, &mut guest, &markers, at).len(), 1);
+    assert_eq!(
+        world::map::discover(&order, &mut guest, &markers, at).len(),
+        1
+    );
     assert!(!guest.discovered.contains(&well.reference));
-    assert_eq!(world::map::discover(&order, &mut guest, &markers, at).len(), 0);
+    assert_eq!(
+        world::map::discover(&order, &mut guest, &markers, at).len(),
+        0
+    );
     // the host finds it (no ShowMap reveal): the shared found bit alone
     // unlocks fast travel on the guest
     let mut host = GameState::new(&order);
     host.set_authority(Authority::Host);
-    assert_eq!(world::map::discover(&order, &mut host, &markers, at).len(), 1);
+    assert_eq!(
+        world::map::discover(&order, &mut host, &markers, at).len(),
+        1
+    );
     assert!(!host.map_markers.contains(&well.reference));
     let fields = world::coop::export::export(&host);
     world::coop::apply::reconcile(&mut guest, &fields, Default::default());

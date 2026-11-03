@@ -282,6 +282,27 @@ impl ActorHost {
         self.apply_damage(actor, Some(from), amount, floor)
     }
 
+    /// The host's world raised an actor's health by `amount` (a script's
+    /// `ForceActorValue Health`, a heal). The ledger takes the raise and
+    /// tells the cell. A guest cannot ask for this: `on_msg` drops `Healed`.
+    pub fn heal(&mut self, actor: FormId, amount: u16) -> Vec<Out> {
+        if amount == 0 || self.dead.contains(&actor) {
+            return vec![];
+        }
+        let Some(rec) = self.own.get_mut(actor) else {
+            return vec![];
+        };
+        let health = rec.state.health.saturating_add(amount);
+        if health == rec.state.health {
+            return vec![];
+        }
+        rec.state.health = health;
+        vec![out(
+            Audience::Cell(rec.state.cell),
+            ActorMsg::Healed { actor, health },
+        )]
+    }
+
     fn apply_damage(
         &mut self,
         actor: FormId,
@@ -489,6 +510,50 @@ mod tests {
         assert!(h
             .on_msg(PlayerId(1), stale, 10, Some(C), &mut auth)
             .is_empty());
+    }
+
+    #[test]
+    fn a_host_heal_raises_the_ledger_and_the_next_hit_starts_from_it() {
+        let (mut h, mut auth) = setup();
+        hit(&mut h, &mut auth, 1, 1, 60, 0);
+        let o = h.heal(A, 4960);
+        assert_eq!(o.len(), 1);
+        assert_eq!(o[0].aud, Audience::Cell(C));
+        assert_eq!(
+            o[0].msg,
+            ActorMsg::Healed {
+                actor: A,
+                health: 5000
+            }
+        );
+        let o = hit(&mut h, &mut auth, 1, 2, 100, 10);
+        assert!(matches!(o[0].msg, ActorMsg::Damaged { health: 4900, .. }));
+        assert_eq!(
+            o.len(),
+            1,
+            "a 100 point hit does not kill a 5000 point actor"
+        );
+    }
+
+    #[test]
+    fn a_guest_cannot_heal_and_the_dead_stay_dead() {
+        let (mut h, mut auth) = setup();
+        let healed = ActorMsg::Healed {
+            actor: A,
+            health: 5000,
+        };
+        assert!(h
+            .on_msg(PlayerId(1), healed, 0, Some(C), &mut auth)
+            .is_empty());
+        let o = hit(&mut h, &mut auth, 1, 1, 30, 0);
+        assert!(
+            matches!(o[0].msg, ActorMsg::Damaged { health: 70, .. }),
+            "a guest's Healed changes nothing"
+        );
+        hit(&mut h, &mut auth, 1, 2, 70, 10);
+        assert!(h.is_dead(A));
+        assert!(h.heal(A, 50).is_empty());
+        assert!(h.heal(FormId(0x999), 50).is_empty(), "unknown actor");
     }
 
     #[test]

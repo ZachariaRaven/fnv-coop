@@ -193,6 +193,21 @@ impl Event {
     }
 }
 
+/// How far back [`Session::hash_points`] gives a host's roots. A guest that
+/// trails the host by more than this does not match an older root.
+pub const RECENT_ROOTS_MS: u64 = 3_000;
+
+/// The revision of this peer's shared-state hash, and on a host the roots of
+/// the last revisions ([`Session::hash_points`]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HashPoints {
+    /// The store revision that the game state holds (unknown on a guest
+    /// whose store has a gap).
+    pub rev: Option<u64>,
+    /// Host only: `(revision, root)`, newest first.
+    pub recent: Vec<(u64, u64)>,
+}
+
 /// A snapshot of the session for a status line.
 #[derive(Clone, Debug)]
 pub struct Status {
@@ -1404,6 +1419,35 @@ impl Session {
     /// Hash of the shared part of `gs` (what the dump and log record).
     pub fn state_root(gs: &GameState) -> u64 {
         gs.shard_hashes().root()
+    }
+
+    /// The revision that [`Session::state_root`] belongs to now. On a host it
+    /// also gives the roots of the revisions of the last
+    /// [`RECENT_ROOTS_MS`]. Script timers change the game state every frame,
+    /// so a guest dumps its state a few revisions behind the host. The
+    /// comparison then uses the host's root at the guest's revision.
+    pub fn hash_points(&self) -> HashPoints {
+        if let Some(h) = &self.host {
+            let keep = |f: &coop_core::schema::Field| !world::coop::export::is_tombstone(f);
+            let recent: Vec<(u64, u64)> = h
+                .sync
+                .recent_roots(RECENT_ROOTS_MS, &keep)
+                .into_iter()
+                .map(|(r, root)| (r.0, root))
+                .collect();
+            return HashPoints {
+                rev: Some(h.sync.store.rev().0),
+                recent,
+            };
+        }
+        HashPoints {
+            rev: self
+                .guest
+                .as_ref()
+                .and_then(|g| g.bridge.applied_rev())
+                .map(|r| r.0),
+            recent: Vec::new(),
+        }
     }
 
     /// Writes the dump file and a `sync` log line now, whatever changed.

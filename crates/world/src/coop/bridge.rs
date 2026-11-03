@@ -145,6 +145,12 @@ impl GuestBridge {
         Some(rep)
     }
 
+    /// The store revision last applied to the game state, when the store
+    /// then held every revision up to it (no gaps).
+    pub fn applied_rev(&self) -> Option<Rev> {
+        self.last.filter(|(r, b)| r == b).map(|(r, _)| r)
+    }
+
     /// Forget what was applied (after a reload of the guest state).
     pub fn reset(&mut self) {
         self.last = None;

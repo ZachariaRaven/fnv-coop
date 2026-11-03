@@ -519,6 +519,7 @@ pub(crate) fn dump_text(
     let mut counters = live.counters.clone();
     counters.start = Some(s.start_info());
     counters.status = Some(s.status());
+    counters.hash_points = Some(s.hash_points());
     coop_session::dump::state_json_full(
         state,
         &game.0.order,

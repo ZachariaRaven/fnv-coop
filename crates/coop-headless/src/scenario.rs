@@ -617,8 +617,10 @@ fn parse_expect(e: &J, i: usize) -> Result<Expect, Vec<String>> {
     if !OPS.contains(&op.as_str()) {
         errs.push(format!("expect {id}: op {op:?} not in {OPS:?}"));
     }
-    if !["host", "guest", "guest2", "guest3", "guest4", "all", "both", "equal"]
-        .contains(&on.as_str())
+    if ![
+        "host", "guest", "guest2", "guest3", "guest4", "all", "both", "equal",
+    ]
+    .contains(&on.as_str())
     {
         errs.push(format!(
             "expect {id}: on {on:?} not in host/guest/guest2/guest3/guest4/all/both/equal"

@@ -163,7 +163,10 @@ fn campaign_json(gs: &GameState, order: &LoadOrder) -> String {
         if let Some(sh) = gs.shadow_of(*s) {
             level.insert(key.clone(), sh.level.to_string());
             perks.insert(key.clone(), sh.perks.len().to_string());
-            skill_points.insert(key.clone(), sh.skill_points.values().sum::<u32>().to_string());
+            skill_points.insert(
+                key.clone(),
+                sh.skill_points.values().sum::<u32>().to_string(),
+            );
             let vd = |av: u16| num(sh.value_damage.get(&av).copied().unwrap_or(0.0) as f32);
             needs.insert(
                 key.clone(),
@@ -331,6 +334,9 @@ pub struct LiveCounters {
     /// Avatar glitches the remote-avatar detectors saw ([`crate::glitch`]):
     /// position pops, heading snaps, animation flip-flops.
     pub glitch: crate::glitch::GlitchCounts,
+    /// The revision of `hash.shared`, and on a host the recent roots
+    /// (`Session::hash_points`), shown in the dump's `hash` object when set.
+    pub hash_points: Option<crate::session::HashPoints>,
 }
 
 /// [`state_json`] with the live layer's view of the other players.
@@ -673,7 +679,11 @@ pub fn state_json_full(
     let start = format!(
         "{start}{}{}",
         story_json(gs, order),
-        counters.status.as_ref().map(status_json).unwrap_or_default()
+        counters
+            .status
+            .as_ref()
+            .map(status_json)
+            .unwrap_or_default()
     );
     let combat = gs.coop.live.combat.stats.json();
     // whom each enemy in combat attends to (`combat.targets.<enemy>` = a player key)
@@ -706,8 +716,29 @@ pub fn state_json_full(
         }
         None => start,
     };
+    // `hash.rev`: the revision that the hash belongs to. `hash.recent` (host):
+    // `[rev, root]` pairs of the last revisions, newest first. A guest that
+    // dumps a few revisions behind the host is compared at its own revision.
+    let points = counters
+        .hash_points
+        .as_ref()
+        .map(|p| {
+            let rev = p.rev.map(|r| format!(",\"rev\":{r}")).unwrap_or_default();
+            let recent: Vec<String> = p
+                .recent
+                .iter()
+                .map(|(r, h)| format!("[{r},\"{h:016x}\"]"))
+                .collect();
+            let recent = if recent.is_empty() {
+                String::new()
+            } else {
+                format!(",\"recent\":[{}]", recent.join(","))
+            };
+            format!("{rev}{recent}")
+        })
+        .unwrap_or_default();
     format!(
-        "{{\"schema\":1,\"role\":\"{who}\",\"t\":{t:.3},\"seq\":{seq},\"quests\":{},\"player_quests\":{},\"globals\":{},\"items\":{},\"positions\":{},\"disabled\":{},\"dead\":{},\"live\":{live},\"actors\":{},\"scene\":{scene},\"time\":{time},\"interact\":{interact},\"objects\":{objects},\"campaign\":{campaign},\"combat\":{combat},\"hash\":{{\"shared\":\"{root:016x}\"}}{start}}}\n",
+        "{{\"schema\":1,\"role\":\"{who}\",\"t\":{t:.3},\"seq\":{seq},\"quests\":{},\"player_quests\":{},\"globals\":{},\"items\":{},\"positions\":{},\"disabled\":{},\"dead\":{},\"live\":{live},\"actors\":{},\"scene\":{scene},\"time\":{time},\"interact\":{interact},\"objects\":{objects},\"campaign\":{campaign},\"combat\":{combat},\"hash\":{{\"shared\":\"{root:016x}\"{points}}}{start}}}\n",
         obj(&q),
         obj(&pq),
         obj(&g),
@@ -930,11 +961,7 @@ fn status_json(s: &crate::session::Status) -> String {
         .map(|p| {
             (
                 slot_key(p.player.0),
-                format!(
-                    "{{\"name\":\"{}\",\"rtt_ms\":{}}}",
-                    esc(&p.name),
-                    p.rtt_ms
-                ),
+                format!("{{\"name\":\"{}\",\"rtt_ms\":{}}}", esc(&p.name), p.rtt_ms),
             )
         })
         .collect();

@@ -427,7 +427,9 @@ pub fn walk(
     }
     let len = (wish[0] * wish[0] + wish[1] * wish[1]).sqrt();
     let shift = keys.pressed(KeyCode::ShiftLeft) || keys.pressed(KeyCode::ShiftRight);
-    let sneak = player.sneaking;
+    // The test bot's `coop sneak 1` sneaks as the key does (else this frame
+    // clears the flag again before anyone asks who notices the player).
+    let sneak = player.sneaking || state.0.coop.live.combat.bot_sneak == Some(true);
     let settings = settings.get_or_insert_with(|| SpeedSettings::read(order));
     let over_encumbered = state.0.over_encumbered(order, player_ref);
     // With Always Run on, Shift (Run) walks; off, it runs. Not

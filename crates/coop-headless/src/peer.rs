@@ -816,6 +816,7 @@ impl Peer {
         }
         self.counters.start = Some(self.sess.start_info());
         self.counters.status = Some(self.sess.status());
+        self.counters.hash_points = Some(self.sess.hash_points());
         let root = Session::state_root(&self.gs);
         self.dump_text = state_json_full(
             &self.gs,

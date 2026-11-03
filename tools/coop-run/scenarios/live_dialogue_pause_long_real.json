@@ -1,6 +1,6 @@
 {
     "name": "live_dialogue_pause_long_real",
-    "description": "The host's clock runs in the real Runner::update, gated by the viewer's scripts.rs time gate. A host script starts a conversation with Doc Mitchell, and the host's menu holds it open for 40 s with no pick after the first line. The host's conversation stops everyone's time for one dialogue heartbeat (15 s, GameState::coop_conversation_stops_time). Then the world clock runs on under the open menu. The guest watches the whole hold: its frames run, its clock stood still for no more than the heartbeat plus a tolerance, and its clock ran for at least 15 s of the hold. Real-game copy: the game's own Runner::update steps the clock, so the headless 'coop clock on' line is left out.",
+    "description": "The host's clock runs in the real Runner::update, gated by the viewer's scripts.rs time gate. A host script starts a conversation with Doc Mitchell, and the host's menu holds it open for 40 s with no pick after the first line. The host's conversation stops everyone's time for one dialogue heartbeat (15 s, GameState::coop_conversation_stops_time). Then the world clock runs on under the open menu. The guest watches the whole hold: its frames run, its clock stood still for no more than the heartbeat plus a tolerance, and its clock ran for at least 15 s of the hold. Real-game copy: the game's own Runner::update steps the clock, so the headless 'coop clock on' line is left out. Doc sits in his chair, and a seated person waits for the player to come within reach (200) instead of walking up (the conversation package, viewer ai.rs talk_frame). So the host first moves next to Doc with player.MoveTo DocMitchellREF. Before the talk the host runs set VCG01.bGiveTest to 1: without it Doc's greeting is the goodbye line 00107222 (We can chat later...), and the game closes the menu after it. With it Doc says 00107220 (Welcome back...) and the menu stays open on its topics. The real menu closes when the host picks the Goodbye. topic (coop topic Goodbye.), as a player does; coop close ends only the network session, not the game's menu.",
     "cell": "GSDocMitchellHouse",
     "network": "good_wifi",
     "seed": 88,
@@ -9,12 +9,20 @@
     "host": {
         "script": [
             {
+                "at": 2,
+                "run": "set VCG01.bGiveTest to 1"
+            },
+            {
+                "at": 3,
+                "run": "player.MoveTo DocMitchellREF"
+            },
+            {
                 "at": 4,
                 "run": "DocMitchellREF.StartConversation player"
             },
             {
                 "at": 44,
-                "run": "coop close"
+                "run": "coop topic Goodbye."
             }
         ]
     },

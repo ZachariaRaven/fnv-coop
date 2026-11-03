@@ -58,6 +58,18 @@ pub fn run_line(line: &str, d: &Data, gs: &mut GameState, s: &mut Session, cx: C
         }
         Some("linedone") => s.live_intent(Intent::DialogueLineDone),
         Some("close") => s.live_intent(Intent::DialogueClose),
+        // `coop topic TEXT` picks a topic in the viewer's game menu. Modelled:
+        // the stand-in conversation has no topics, and only the Goodbye. pick
+        // has an effect here (it ends the conversation).
+        Some("topic") => {
+            if words[2..]
+                .join(" ")
+                .to_ascii_lowercase()
+                .starts_with("goodbye")
+            {
+                s.live_intent(Intent::DialogueClose);
+            }
+        }
         Some("lootopen") => {
             if let Some(c) = f(2) {
                 gs.coop_loot(LootOp::Open(c));

@@ -301,12 +301,7 @@ mod tests {
         };
         assert_eq!(
             e.host_args(),
-            [
-                "--coop-difficulty",
-                "normal",
-                "--coop-friendly-fire",
-                "on"
-            ]
+            ["--coop-difficulty", "normal", "--coop-friendly-fire", "on"]
         );
         assert!(e.args().is_empty(), "a guest never gets the rules flags");
         assert!(Difficulty::parse("hard").is_err());

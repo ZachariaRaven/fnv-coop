@@ -203,7 +203,13 @@ def run_scenario(scn, cfg, run_dir, seed=None, scn_path="", cfg_path="", slot=0,
             _wait(lambda: _has_event(files["host"]["log"], "coop_listening") or not procs["host"].alive(),
                   min(cfg["launch_timeout_s"], deadline - time.monotonic()))
         if not procs["host"].launch_error and procs["host"].alive():
-            for r in roles[1:]:
+            # guests join one at a time, in launch order: the host gives slots in join
+            # order, so "guest" is slot 1, "guest2" slot 2 (the scenarios' paths say so)
+            for i, r in enumerate(roles[1:]):
+                if i > 0:
+                    prev = roles[i]
+                    _wait(lambda: _has_event(files[prev]["log"], "coop_connected") or not procs[prev].alive(),
+                          min(cfg["launch_timeout_s"], max(0, deadline - time.monotonic())))
                 procs[r] = Proc(r, cfg["viewer"] + args[r], f(r + ".stdout.txt"))
         all_up = all(r in procs and not procs[r].launch_error for r in roles)
 

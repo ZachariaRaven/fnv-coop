@@ -772,7 +772,10 @@ v-viewer.exe"
         ]))
         .unwrap();
         let t = print_command(&c, settings(), Path::new("h"), Path::new("."), [2; 8]).unwrap();
-        assert!(t.contains("--coop-difficulty normal --coop-friendly-fire on"), "{t}");
+        assert!(
+            t.contains("--coop-difficulty normal --coop-friendly-fire on"),
+            "{t}"
+        );
         assert!(parse(&v(&["--difficulty", "hard"])).is_err());
         assert!(parse(&v(&["--friendly-fire", "maybe"])).is_err());
     }

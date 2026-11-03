@@ -129,15 +129,12 @@ fn real_main() -> i32 {
             }
         };
     }
-    if let Some(c) = std::env::args()
-        .nth(1)
-        .filter(|c| {
-            matches!(
-                c.as_str(),
-                "checklist" | "questwalk" | "diverge" | "shrink" | "gentest"
-            )
-        })
-    {
+    if let Some(c) = std::env::args().nth(1).filter(|c| {
+        matches!(
+            c.as_str(),
+            "checklist" | "questwalk" | "diverge" | "shrink" | "gentest"
+        )
+    }) {
         return coop_headless::cli::run(&c, std::env::args().skip(2).collect());
     }
     let args = match parse(std::env::args().skip(1)) {

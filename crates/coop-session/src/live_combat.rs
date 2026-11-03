@@ -20,7 +20,14 @@ const SITE_GRID: f32 = 512.0;
 pub fn encounter_site(base: FormId, cell: FormId, pos: [f32; 3], i: u32) -> CForm {
     let square = |v: f32| (v / SITE_GRID).floor() as i32 as u32;
     let mut h: u32 = 0x811c_9dc5;
-    for w in [cell.0, base.0, square(pos[0]), square(pos[1]), square(pos[2]), i] {
+    for w in [
+        cell.0,
+        base.0,
+        square(pos[0]),
+        square(pos[1]),
+        square(pos[2]),
+        i,
+    ] {
         for b in w.to_le_bytes() {
             h ^= u32::from(b);
             h = h.wrapping_mul(0x0100_0193);
@@ -124,9 +131,18 @@ mod tests {
         let host = encounter_site(base, cell, [2352.0, 1603.6, 7360.0], 0);
         let guest = encounter_site(base, cell, [2351.98, 1603.62, 7360.26], 0);
         assert_eq!(host, guest);
-        assert_ne!(host, encounter_site(base, cell, [2352.0, 1603.6, 7360.0], 1));
-        assert_ne!(host, encounter_site(FormId(7), cell, [2352.0, 1603.6, 7360.0], 0));
-        assert_ne!(host, encounter_site(base, cell, [4000.0, 1603.6, 7360.0], 0));
+        assert_ne!(
+            host,
+            encounter_site(base, cell, [2352.0, 1603.6, 7360.0], 1)
+        );
+        assert_ne!(
+            host,
+            encounter_site(FormId(7), cell, [2352.0, 1603.6, 7360.0], 0)
+        );
+        assert_ne!(
+            host,
+            encounter_site(base, cell, [4000.0, 1603.6, 7360.0], 0)
+        );
         assert_eq!(host.0 & 0xFF00_0000, 0xFC00_0000);
     }
 }

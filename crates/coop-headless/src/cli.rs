@@ -95,7 +95,8 @@ fn recording_of(
         seed.unwrap_or(scn.seed),
         r.verdict.result
     );
-    r.recording.ok_or_else(|| format!("{target}: the run made no recording"))
+    r.recording
+        .ok_or_else(|| format!("{target}: the run made no recording"))
 }
 
 fn tools(cmd: &str, args: Vec<String>) -> i32 {
@@ -221,10 +222,7 @@ fn tool_gentest(t: &ToolArgs) -> Result<i32, String> {
             }
         }
     }
-    println!(
-        "RESULT: {}",
-        if bad == 0 { "PASS" } else { "FAIL" }
-    );
+    println!("RESULT: {}", if bad == 0 { "PASS" } else { "FAIL" });
     Ok(i32::from(bad > 0))
 }
 

@@ -96,7 +96,12 @@ pub fn budget_checks(cfg: &crate::scenario::BudgetCfg, b: &Budget) -> Vec<Check>
     let gate_cpu = cfg.gates_cpu() && !cfg!(debug_assertions);
     let v = b.violations(&lim, gate_cpu);
     if v.is_empty() {
-        let worst_down = b.peers.iter().skip(1).map(|p| p.down_bps).fold(0.0, f64::max);
+        let worst_down = b
+            .peers
+            .iter()
+            .skip(1)
+            .map(|p| p.down_bps)
+            .fold(0.0, f64::max);
         let worst_up = b.peers.iter().skip(1).map(|p| p.up_bps).fold(0.0, f64::max);
         let host_up = b.peers.first().map_or(0.0, |h| h.up_bps);
         return vec![Check {

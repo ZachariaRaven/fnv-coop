@@ -164,9 +164,10 @@ def judge(scn, run):
         for p in everyone[1:]:
             gh = scn_mod.get_path(p["state"], "hash.shared")
             if auto and hh is not scn_mod._MISSING and gh is not scn_mod._MISSING:
+                ok, detail = scn_mod.hash_match(host["state"], p["state"])
                 checks.append({"id": "auto.hash.shared" if p is guest else "auto.hash.shared#" + p["role"],
-                               "ok": hh == gh, "kind": "desync",
-                               "detail": "hash.shared host=%s %s=%s" % (hh, p["role"], gh)})
+                               "ok": ok, "kind": "desync",
+                               "detail": detail.replace("guest", p["role"], 1)})
         bad = [c for c in checks if not c["ok"]]
         for kind in ("desync", "assert"):
             first = next((c for c in bad if c["kind"] == kind), None)

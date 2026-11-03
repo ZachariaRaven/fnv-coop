@@ -82,7 +82,11 @@ impl LinkRequest {
     /// The join service a guest resolves short codes with: the request's, else
     /// the environment's.
     pub fn service(&self) -> Option<JoinService> {
-        match self.join_service.as_deref().filter(|s| !s.trim().is_empty()) {
+        match self
+            .join_service
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+        {
             Some(u) => Some(JoinService::at(u)),
             None => JoinService::from_env(),
         }
@@ -384,7 +388,8 @@ fn open_guest(req: &LinkRequest) -> Result<Opened, Error> {
                 NetTarget::SteamLobby(_) => guest_steam(req, Some(code))?,
                 _ => return Err(Error::Target("this join code needs a newer build".into())),
             };
-            o.notices.push(Notice::new("coop_short_code_resolved", &[("code", &c)]));
+            o.notices
+                .push(Notice::new("coop_short_code_resolved", &[("code", &c)]));
             Ok(o)
         }
     }

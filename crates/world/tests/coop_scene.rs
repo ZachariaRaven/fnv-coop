@@ -550,3 +550,70 @@ fn masks_parse_the_way_the_policy_writes_them() {
     assert_eq!(parse_mask("1 1 1 1 1 1 1"), Locks::ALL);
     assert_eq!(parse_mask(""), Locks::NONE);
 }
+
+/// The host's clock as the scene layer sends it.
+fn snap_of(order: &LoadOrder, gs: &GameState) -> ClockSnap {
+    let g = |n: &str| gs.global(order, n).unwrap();
+    ClockSnap {
+        hour: g("GameHour").to_bits(),
+        days_passed: g("GameDaysPassed").to_bits(),
+        year: 2281,
+        month: 9,
+        day: 19,
+        scale: g("TimeScale").to_bits(),
+        weather: 0,
+    }
+}
+
+#[test]
+fn a_fast_guest_keeps_the_hosts_hour_although_the_day_count_rounds_each_frame() {
+    // GameDaysPassed is a float: a frame's step (a few millionths of a day)
+    // loses part of itself in the rounding, more so at a high frame rate.
+    // The guest must still show the host's hour, not run ahead of it.
+    let (_d, order) = world_order("cs-follow-fps");
+    // the guest at 400, 144 and 60 frames a second
+    for frame_ms in [2.5f64, 1000.0 / 144.0, 1000.0 / 60.0] {
+        let mut host = GameState::new(&order);
+        let mut guest = GameState::new(&order);
+        guest.set_authority(Authority::Guest);
+        for (name, v) in [
+            ("GameHour", 12.0),
+            ("GameDaysPassed", 5.5),
+            ("TimeScale", 30.0),
+        ] {
+            host.globals
+                .insert(order.form_by_editor_id(name).unwrap(), v);
+        }
+        let mut sent = (snap_of(&order, &host), 0u64);
+        let (mut host_ms, mut guest_ms) = (0.0f64, 0.0f64);
+        while guest_ms < 60_000.0 {
+            // the host at 60 frames a second, a clock message each second
+            while host_ms <= guest_ms {
+                host.advance_clock(&order, 1.0 / 60.0);
+                host_ms += 1000.0 / 60.0;
+                if host_ms as u64 / 1000 != sent.1 / 1000 {
+                    sent = (snap_of(&order, &host), host_ms as u64);
+                }
+            }
+            guest_ms += frame_ms;
+            let dt = (frame_ms / 1000.0) as f32;
+            follow_clock(&order, &mut guest, Some(sent), guest_ms as u64, dt);
+        }
+        let (h, g) = (
+            host.global(&order, "GameHour").unwrap(),
+            guest.global(&order, "GameHour").unwrap(),
+        );
+        assert!(
+            (h - g).abs() < 0.003,
+            "{frame_ms} ms frames: host hour {h}, guest hour {g}"
+        );
+        let (hd, gd) = (
+            host.global(&order, "GameDaysPassed").unwrap(),
+            guest.global(&order, "GameDaysPassed").unwrap(),
+        );
+        assert!(
+            (hd - gd).abs() < 0.003 / 24.0,
+            "{frame_ms} ms frames: host days {hd}, guest days {gd}"
+        );
+    }
+}

@@ -346,7 +346,10 @@ mod tests {
         assert!(o.is_none(), "the proposer's yes does not decide it");
         assert!(v.accepts(PlayerId(1), id));
         assert!(!v.accepts(PlayerId(0), id), "the proposer already voted");
-        assert!(v.cast(PlayerId(1), id, true).is_none(), "every cast in, still open");
+        assert!(
+            v.cast(PlayerId(1), id, true).is_none(),
+            "every cast in, still open"
+        );
         assert!(!v.accepts(PlayerId(1), id), "one cast each");
         assert!(v.tick(VOTE_TIMEOUT_MS).is_none(), "not the short timeout");
         let o = v.settle(id, true).unwrap();

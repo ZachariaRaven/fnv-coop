@@ -7,7 +7,6 @@ use std::collections::{BTreeMap, BTreeSet};
 use coop_core::ids::PlayerId;
 use coop_core::roam::{DeferredOp, Placement};
 use coop_core::sync::{GuestLive, HostLive};
-use esm::FormId;
 use world::coop::apply::Ctx;
 use world::coop::roam_ops;
 use world::scripting::{GameState, Runner};
@@ -93,9 +92,8 @@ pub(crate) fn host_frame(
     // in the grid square around the host's player)
     if !loaded.is_empty() {
         let m = &live.roam.model;
-        view.remote_actors.retain(|a| {
-            m.sees(PlayerId::HOST, coop_core::ids::CellId(a.cell), a.pos)
-        });
+        view.remote_actors
+            .retain(|a| m.sees(PlayerId::HOST, coop_core::ids::CellId(a.cell), a.pos));
     }
     let own = &live.actors.own;
     let mut owned: BTreeMap<PlayerId, u32> = BTreeMap::new();
@@ -113,7 +111,11 @@ pub(crate) fn host_frame(
         .filter_map(|(p, sc)| {
             let (x, y) = s.model.square_of_peer(*p)?;
             let g = &s.model.graph;
-            let n = sc.loaded.iter().filter(|c| g.grid_of(**c).is_some()).count();
+            let n = sc
+                .loaded
+                .iter()
+                .filter(|c| g.grid_of(**c).is_some())
+                .count();
             Some((*p, x, y, n as u32))
         })
         .collect();
@@ -189,11 +191,6 @@ pub(crate) fn guest_frame(gs: &GameState, live: &mut GuestLive, view: &mut LiveV
         place: live.roam.place.take(),
         ..RoamView::default()
     };
-}
-
-/// A reference's form id in the session's types.
-pub fn form(f: coop_core::ids::FormId) -> FormId {
-    FormId(f.0)
 }
 
 impl crate::Session {

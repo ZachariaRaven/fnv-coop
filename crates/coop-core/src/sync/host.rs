@@ -1,6 +1,6 @@
 //! Host side of the replication protocol.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap, VecDeque};
 
 use super::live::HostLive;
 use crate::authority::AuthorityTable;
@@ -8,10 +8,11 @@ use crate::baseline::{BaselineRing, SendPlan};
 use crate::chunk;
 use crate::delta::StateStore;
 use crate::hash::{HashHistory, Repair, ShardHashes};
+use crate::ids::SHARD_COUNT;
 use crate::ids::{Epoch, FormId, PlayerId, Rev, Seq, Tick};
 use crate::proto::{self, Hello, Msg, RejectReason, SNAPSHOT_CHUNK_BYTES};
 use crate::rules::Mode;
-use crate::schema::Field;
+use crate::schema::{Field, Key};
 use crate::session::{self, HostCursor, RejoinDecision, RejoinRequest};
 use crate::snapshot::Snapshot;
 
@@ -61,6 +62,19 @@ pub struct CompatNote {
     pub refused: bool,
 }
 
+/// Store writes remembered for [`HostSync::recent_roots`] (about 40 s of a
+/// timer that changes every frame).
+const UNDO_CAP: usize = 4096;
+
+/// One store write, with the value it replaced.
+#[derive(Debug)]
+struct Undo {
+    rev: Rev,
+    key: Key,
+    old: Option<Field>,
+    at_ms: u64,
+}
+
 #[derive(Debug, Default)]
 struct Guest {
     active: bool,
@@ -94,6 +108,8 @@ pub struct HostSync {
     /// refused player (a repeated hello of the same player is not counted again).
     pub full_refusals: u32,
     refused_full: std::collections::BTreeSet<PlayerId>,
+    /// The last store writes, oldest first (see [`HostSync::recent_roots`]).
+    undo: VecDeque<Undo>,
 }
 
 impl HostSync {
@@ -119,6 +135,7 @@ impl HostSync {
             snapshots_sent: 0,
             full_refusals: 0,
             refused_full: std::collections::BTreeSet::new(),
+            undo: VecDeque::new(),
         }
     }
 
@@ -129,7 +146,75 @@ impl HostSync {
 
     /// Host-side game write.
     pub fn write(&mut self, form: FormId, field: Field) -> Option<Rev> {
-        self.store.write_local(form, field)
+        // COOP_STORE_TRACE=1 prints each store change (finds keys that change every frame)
+        static TRACE: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+        let trace = *TRACE.get_or_init(|| std::env::var_os("COOP_STORE_TRACE").is_some());
+        let shown = trace.then(|| format!("{form:?} {field:?}"));
+        let rev = self.write_logged(form, field);
+        if let (Some(r), Some(s)) = (rev, shown) {
+            eprintln!(
+                "coop store {r:?}: {}",
+                s.chars().take(160).collect::<String>()
+            );
+        }
+        rev
+    }
+
+    /// Writes the store and remembers the replaced value.
+    fn write_logged(&mut self, form: FormId, field: Field) -> Option<Rev> {
+        let key = field.key(form);
+        let old = self.store.get_key(&key).map(|e| e.field.clone());
+        let rev = self.store.write_local(form, field)?;
+        self.undo.push_back(Undo {
+            rev,
+            key,
+            old,
+            at_ms: self.now_ms,
+        });
+        while self.undo.len() > UNDO_CAP {
+            self.undo.pop_front();
+        }
+        Some(rev)
+    }
+
+    /// The root hash of the store at each recent revision, newest first,
+    /// from the current revision back to the writes of the last `within_ms`.
+    /// `keep` selects the fields that count (the game hash skips cleared
+    /// fields). The list stops at a write that this host did not log (a
+    /// direct store change), because the older revisions are then unknown.
+    /// A guest that dumps its state a few revisions behind is compared at
+    /// its own revision with this list.
+    pub fn recent_roots(&self, within_ms: u64, keep: &dyn Fn(&Field) -> bool) -> Vec<(Rev, u64)> {
+        let mut shards = vec![0u64; SHARD_COUNT];
+        for (k, e) in self.store.iter().filter(|(_, e)| keep(&e.field)) {
+            let s = crate::ids::shard_of(k.form) as usize;
+            shards[s] = shards[s].wrapping_add(crate::hash::record_hash(k.form, &e.field));
+        }
+        let root = |shards: &[u64]| ShardHashes::from_vec(shards.to_vec()).map_or(0, |h| h.root());
+        let mut rev = self.store.rev();
+        let mut out = vec![(rev, root(&shards))];
+        let mut now: HashMap<Key, Option<Field>> = HashMap::new();
+        let since = self.now_ms.saturating_sub(within_ms);
+        for u in self.undo.iter().rev() {
+            if u.rev != rev || u.at_ms < since {
+                break;
+            }
+            let cur = now
+                .get(&u.key)
+                .cloned()
+                .unwrap_or_else(|| self.store.get_key(&u.key).map(|e| e.field.clone()));
+            let s = crate::ids::shard_of(u.key.form) as usize;
+            if let Some(f) = cur.as_ref().filter(|f| keep(f)) {
+                shards[s] = shards[s].wrapping_sub(crate::hash::record_hash(u.key.form, f));
+            }
+            if let Some(f) = u.old.as_ref().filter(|f| keep(f)) {
+                shards[s] = shards[s].wrapping_add(crate::hash::record_hash(u.key.form, f));
+            }
+            now.insert(u.key, u.old.clone());
+            rev = Rev(rev.0 - 1);
+            out.push((rev, root(&shards)));
+        }
+        out
     }
 
     /// Drains guest input messages received so far.
@@ -318,7 +403,7 @@ impl HostSync {
         let mut rejected = 0u16;
         for (form, field) in changes {
             if self.auth.check_write(from, epoch, form, &field).is_ok() {
-                self.store.write_local(form, field);
+                self.write_logged(form, field);
             } else {
                 rejected += 1;
             }

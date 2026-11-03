@@ -631,11 +631,17 @@ mod tests {
         // a duplicate of the same event is shown once
         deliver(o, &mut cs, 2);
         deliver(h.present(Cue::Sound { form: 9 }), &mut cs, 3);
-        assert!(cs[0].take_notices().is_empty(), "the host showed it already");
+        assert!(
+            cs[0].take_notices().is_empty(),
+            "the host showed it already"
+        );
         for c in &mut cs[1..] {
             assert_eq!(
                 c.take_notices(),
-                vec![Notice::Present(fade), Notice::Present(Cue::Sound { form: 9 })]
+                vec![
+                    Notice::Present(fade),
+                    Notice::Present(Cue::Sound { form: 9 })
+                ]
             );
             assert_eq!(c.presented, 2);
         }

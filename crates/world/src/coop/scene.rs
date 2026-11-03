@@ -463,18 +463,27 @@ pub fn follow_clock(
     }
     let ahead_h = now_ms.saturating_sub(at) as f64 / 1000.0 * scale / 3600.0;
     let target = (f64::from(snap.days_f()) * 24.0) + ahead_h;
-    let cur = f64::from(gs.global(order, "GameDaysPassed").unwrap_or(snap.days_f())) * 24.0;
-    let err = target - cur;
-    if err.abs() > CLOCK_JUMP_HOURS {
+    let days_before = gs.global(order, "GameDaysPassed").unwrap_or(snap.days_f());
+    if (target - f64::from(days_before) * 24.0).abs() > CLOCK_JUMP_HOURS {
         set_clock(order, gs, &snap);
         gs.advance_clock(order, (ahead_h * 3600.0 / scale) as f32);
         return;
     }
+    // The hour sets the slew. GameDaysPassed is a float, and each frame's
+    // step loses part of itself in the rounding (more at a high frame rate),
+    // so the day count is no measure of the hour. A slew from it made the
+    // guest's hour run minutes ahead of (or behind) the host's.
+    let hour = f64::from(gs.global(order, "GameHour").unwrap_or(snap.hour_f()));
+    let err = (f64::from(snap.hour_f()) + ahead_h - hour + 12.0).rem_euclid(24.0) - 12.0;
     let slew = err * f64::from((dt / CLOCK_SLEW_S).min(1.0));
     let hours = (f64::from(dt) * scale / 3600.0 + slew).max(0.0);
     if hours > 0.0 {
         gs.advance_clock(order, (hours * 3600.0 / scale) as f32);
     }
+    // The day count is the host's, carried on from its last message, and
+    // never goes back. (It is not added up frame by frame: that rounds.)
+    let days = days_before.max((target / 24.0) as f32);
+    gs.set_global(order, "GameDaysPassed", days);
     if gs.global(order, "TimeScale") != Some(snap.scale_f()) {
         gs.set_global(order, "TimeScale", snap.scale_f());
     }

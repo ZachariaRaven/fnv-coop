@@ -233,6 +233,11 @@ impl ActorClient {
                     }
                 }
             }
+            ActorMsg::Healed { actor, health } => {
+                if let Some(s) = self.actors.get_mut(&actor).and_then(|a| a.state.as_mut()) {
+                    s.health = health;
+                }
+            }
             ActorMsg::Died { actor, .. } => {
                 if let Some(a) = self.actors.get_mut(&actor) {
                     a.alive = false;

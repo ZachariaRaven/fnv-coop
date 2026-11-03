@@ -509,11 +509,7 @@ pub fn enemy_targets(gs: &GameState, me: PlayerId) -> Vec<(FormId, PlayerId)> {
         .iter()
         .filter(|(enemy, _)| !gs.dead.contains(*enemy) && player_of(**enemy).is_none())
         .filter_map(|(enemy, t)| {
-            let p = if *t == PLAYER_REF {
-                me
-            } else {
-                player_of(*t)?
-            };
+            let p = if *t == PLAYER_REF { me } else { player_of(*t)? };
             Some((*enemy, p))
         })
         .collect()

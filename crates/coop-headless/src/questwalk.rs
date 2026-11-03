@@ -993,13 +993,14 @@ impl<'a> Rig<'a> {
                     .unwrap_or("")
                     .to_string()
             };
-            let diff = vec![format!(
+            let mut diff = diff;
+            diff.push(format!(
                 "shadow(1) lens {} vs {} differ at {at}: host `{}` guest `{}`",
                 hs.len(),
                 gs.len(),
                 ctx(&hs),
                 ctx(&gs)
-            )];
+            ));
             return Err(format!("guests did not join: {}", diff.join(" | ")));
         }
         Ok(rig)
