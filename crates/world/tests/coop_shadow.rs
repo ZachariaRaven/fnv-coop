@@ -268,7 +268,7 @@ fn coop_policy_barrier_stage_waits_for_every_present_player() {
         let mut r = Runner::new(&order, &scripts, &mut rig.host);
         assert!(!r.set_stage(FormId(QUEST), 10), "held at the barrier");
     }
-    assert!(rig.host.stages.get(&FormId(QUEST)).is_none());
+    assert!(!rig.host.stages.contains_key(&FormId(QUEST)));
     for slot in [0u8, 1] {
         let released = rig.gate(|g, gs| {
             g.barrier_pass(FormId(QUEST), slot);

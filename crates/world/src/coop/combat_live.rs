@@ -453,7 +453,7 @@ pub fn remote_candidates(state: &GameState) -> Vec<(FormId, [f32; 3])> {
         .puppets
         .iter()
         .filter(|(f, _)| {
-            player_of(**f).map_or(false, |p| {
+            player_of(**f).is_some_and(|p| {
                 !state
                     .coop
                     .live
@@ -671,6 +671,7 @@ fn hear_shot(order: &LoadOrder, gs: &mut GameState, f: &FireEvent) {
 /// candidate within the radius takes the falloff share. People are hurt
 /// through `combat::hurt` (a guest's NPC hits become requests, a puppet's
 /// hurt becomes a player blow for the host to judge). Returns the hits.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_blast(
     order: &LoadOrder,
     gs: &mut GameState,
