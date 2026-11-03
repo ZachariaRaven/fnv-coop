@@ -366,13 +366,21 @@ mod fighting {
         world::combat::hurt(&order, &mut r.guests[0], guard, 5.0, gecko);
         r.run_ms(3_000);
         assert_eq!(world::combat::health(&order, &r.host, gecko), Some(20.0));
-        assert_eq!(world::combat::health(&order, &r.host, guard), Some(guard_full));
-        assert_eq!(r.host.coop.live.combat.stats.crimes, 0, "no assault by the guest");
+        assert_eq!(
+            world::combat::health(&order, &r.host, guard),
+            Some(guard_full)
+        );
+        assert_eq!(
+            r.host.coop.live.combat.stats.crimes, 0,
+            "no assault by the guest"
+        );
         // the guest's own blow on the guard still goes, and it is the guest's crime
         world::combat::hurt(&order, &mut r.guests[0], guard, 5.0, PLAYER_REF);
-        assert!(r.until(10_000, |r| world::combat::health(&order, &r.host, guard)
-            .unwrap()
-            < guard_full));
+        assert!(
+            r.until(10_000, |r| world::combat::health(&order, &r.host, guard)
+                .unwrap()
+                < guard_full)
+        );
         assert_eq!(r.host.coop.live.combat.stats.crimes, 1);
     }
 

@@ -31,8 +31,10 @@ import scenario as scn_mod  # noqa: E402
 import verdict as verdict_mod  # noqa: E402
 
 DEFAULT_CONFIG = os.path.join(HERE, "coop-run.local.json")
-# Seconds the runner waits for each relay to write its ready file.
-RELAY_START_S = 30
+# Seconds the runner waits for a relay to write its ready file, and the
+# number of starts before the run is a harness failure.
+RELAY_START_S = 15
+RELAY_TRIES = 3
 
 
 class ConfigError(Exception):
@@ -170,6 +172,26 @@ def run_scenario(scn, cfg, run_dir, seed=None, scn_path="", cfg_path="", slot=0,
     def relay_name(i, ext):
         return f("relay.%s" % ext) if i == 0 else f("relay%d.%s" % (i + 1, ext))
 
+    def start_relay(i, cmd):
+        """Starts relay i and waits for its ready file. A busy machine can stall a new
+        Python process for 12 s to more than 30 s (seen in full suites, median start
+        0.1 s). The runner stops a stalled relay and starts it again, RELAY_TRIES times."""
+        tail = ""
+        for attempt in range(RELAY_TRIES):
+            out = relay_name(i, "stdout.txt") if attempt == 0 else relay_name(i, "try%d.stdout.txt" % (attempt + 1))
+            rproc = Proc("relay", cmd, out)
+            if rproc.launch_error:
+                raise RuntimeError("relay: " + rproc.launch_error)
+            _wait(lambda: os.path.exists(relay_name(i, "ready")) or not rproc.alive(), RELAY_START_S)
+            if os.path.exists(relay_name(i, "ready")):
+                return rproc
+            tail = rproc.tail()
+            rproc.stop()
+            rproc.close()
+            run["relay_restarts"] = run.get("relay_restarts", 0) + 1
+            log("  relay %d wrote no ready file in %d s (try %d of %d)" % (i + 1, RELAY_START_S, attempt + 1, RELAY_TRIES))
+        raise RuntimeError("relay did not start: " + tail)
+
     stats_path = relay_name(0, "stats.json")
     try:
         sched = scn_mod.relay_schedule(scn)
@@ -181,15 +203,7 @@ def run_scenario(scn, cfg, run_dir, seed=None, scn_path="", cfg_path="", slot=0,
                          "--profile", scn["network"], "--seed", str(seed + 7919 * i), "--schedule", f("relay.schedule.json"),
                          "--stats", relay_name(i, "stats.json"), "--log", relay_name(i, "log.jsonl"),
                          "--stop-file", relay_name(i, "stop"), "--ready-file", relay_name(i, "ready")]
-            rproc = Proc("relay", relay_cmd, relay_name(i, "stdout.txt"))
-            relay_procs.append(rproc)
-            if rproc.launch_error:
-                raise RuntimeError("relay: " + rproc.launch_error)
-        # A loaded machine can take 12 s to start Python (seen in a full suite).
-        for i, rproc in enumerate(relay_procs):
-            _wait(lambda: os.path.exists(relay_name(i, "ready")) or not rproc.alive(), RELAY_START_S)
-            if not os.path.exists(relay_name(i, "ready")):
-                raise RuntimeError("relay did not start: " + rproc.tail())
+            relay_procs.append(start_relay(i, relay_cmd))
 
         # a quit request must outlast the script plus the settle window; the backstop is longer
         script_end = scn["duration_s"] + scn["settle_s"]
