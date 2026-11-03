@@ -417,6 +417,34 @@ fn a_per_player_quest_variable_reaches_its_owner_and_nobody_else() {
         .any(|f| matches!(f, coop_core::schema::Field::ScriptVar { bits, .. } if *bits != 0)));
 }
 
+/// A player's health changes on that player's own machine (a hurt from the host, a blow of an
+/// enemy it owns). Before, the guest's own shadow carried the damage into the shared hash (a
+/// desync), and the host's next write to that shadow reset it (the guest healed).
+#[test]
+fn a_guest_keeps_its_own_health_damage_and_the_hash_agrees() {
+    let (_d, order) = order("coop-own-damage");
+    let scripts = ScriptCache::default();
+    let mut rig = Rig::new(&order, &scripts, table(""));
+    assert!(rig.settle(), "shared state converges");
+    // a gecko the guest owns bites the guest's player on the guest's machine
+    rig.guests[0].damage.insert(PLAYER_REF, 5.5);
+    assert!(rig.settle(), "the guest's own damage is not shared state");
+    // the host writes to the guest's shadow (an item for player 1)
+    rig.host
+        .with_player(1, |g| g.items.insert((PLAYER_REF, FormId(CAPS)), 7));
+    assert!(rig.settle(), "converges after the host's write");
+    assert_eq!(
+        held(&rig.guests[0], 1, CAPS),
+        7,
+        "the item reached the guest"
+    );
+    assert_eq!(
+        rig.guests[0].damage.get(&PLAYER_REF),
+        Some(&5.5),
+        "the host's write does not heal the guest"
+    );
+}
+
 /// Each machine runs its own copy of a per-player quest's script, so the script's variables
 /// stay on that machine. Before, the host shared them: the guest's copy of a timer was
 /// overwritten with the host's, and the next guest frame wrote its own value again (a desync).
