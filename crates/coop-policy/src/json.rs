@@ -422,7 +422,7 @@ mod tests {
         );
         assert!(r.missing.is_empty());
         assert_eq!(r.list, [Kind::Shared, Kind::PerPlayer]);
-        assert_eq!(r.map[&Kind::PerPlayer], true);
+        assert!(r.map[&Kind::PerPlayer]);
     }
 
     #[test]

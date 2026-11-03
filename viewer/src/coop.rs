@@ -626,7 +626,10 @@ pub(crate) fn send(
     // The script clock starts at the session's Ready. With `--coop-go-file` it
     // waits for that file too: the harness writes it when every peer is ready,
     // so a host does not act while a guest still loads the host's place.
-    let go = run.go_file.as_deref().map_or(true, Path::exists);
+    let go = match run.go_file.as_deref() {
+        Some(p) => p.exists(),
+        None => true,
+    };
     if run.ready_seen && run.ready_at.is_none() && go {
         run.ready_at = Some(now);
         held.released = Some(now);

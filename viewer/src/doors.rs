@@ -222,8 +222,8 @@ pub fn walker_at_door(
             let now = state.seconds;
             let mut asks = WALKER_ASKS.lock().unwrap_or_else(|e| e.into_inner());
             asks.retain(|_, at| now - *at < ASK_AGAIN_S);
-            if !asks.contains_key(&door.0) {
-                asks.insert(door.0, now);
+            if let std::collections::btree_map::Entry::Vacant(e) = asks.entry(door.0) {
+                e.insert(now);
                 let _ = state.coop_route(world::coop::interact::door_act(door));
             }
             true

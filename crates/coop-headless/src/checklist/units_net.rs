@@ -121,8 +121,8 @@ fn unique() -> String {
     )
 }
 
-/// A scratch folder under the temp folder (`D:\Games\fnv-tmp` under rsenv.sh). Drop removes
-/// this folder only.
+/// A scratch folder under the temp folder (`std::env::temp_dir`). Drop removes this folder
+/// only.
 struct Scratch(PathBuf);
 
 impl Scratch {
