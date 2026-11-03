@@ -627,8 +627,14 @@ impl Backend for UdpBackend {
         }
     }
 
+    /// The smoothed round trip, rounded up to a whole millisecond and at
+    /// least 1. The status line uses 0 for "no sample yet", so a measured
+    /// sub-millisecond trip on a local link must not read as 0.
     fn rtt_ms(&self, peer: PeerKey) -> Option<u32> {
-        self.conns.get(&peer).and_then(|c| c.srtt).map(|s| s as u32)
+        self.conns
+            .get(&peer)
+            .and_then(|c| c.srtt)
+            .map(|s| (s.ceil() as u32).max(1))
     }
 }
 
@@ -702,6 +708,23 @@ mod tests {
             back.is_some()
         }));
         assert_eq!(back.unwrap(), vec![9u8; 5000]);
+    }
+
+    #[test]
+    fn a_measured_round_trip_never_reads_as_zero() {
+        let (mut h, mut g) = pair(None);
+        g.send(1, Lane::Control, b"hello").unwrap();
+        assert!(run_until(&mut h, &mut g, 2000, |_, g, _, _| !g
+            .conns
+            .is_empty()));
+        let k = *g.conns.keys().next().unwrap();
+        g.conns.get_mut(&k).unwrap().srtt = None;
+        assert_eq!(g.rtt_ms(k), None, "no sample yet");
+        // a local link: the smoothed trip is below one millisecond
+        g.conns.get_mut(&k).unwrap().srtt = Some(0.3);
+        assert_eq!(g.rtt_ms(k), Some(1));
+        g.conns.get_mut(&k).unwrap().srtt = Some(16.2);
+        assert_eq!(g.rtt_ms(k), Some(17));
     }
 
     #[test]
