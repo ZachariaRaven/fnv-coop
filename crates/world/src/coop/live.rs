@@ -133,6 +133,18 @@ fn coalesce(hits: Vec<PendingHit>) -> Vec<(FormId, f64)> {
     by.into_iter().collect()
 }
 
+/// True when a guest sends a hit from its world to the host. The guest
+/// sends the blows of its player and its followers, and the blows on or by
+/// an actor that it owns. The host's world runs all other NPC fights. A
+/// guest copy of such a fight (Doc Mitchell and a gecko) is not sent: the
+/// host would book it as this player's hit, with an assault crime on Doc.
+fn guest_sends(gs: &GameState, actors: &ActorClient, h: &PendingHit) -> bool {
+    h.by == PLAYER_REF
+        || gs.teammates.contains(&h.by)
+        || actors.owns(cf(h.by))
+        || actors.owns(cf(h.who))
+}
+
 /// Applies a host verdict to this machine's world without hooks.
 fn replay(cx: Ctx, gs: &mut GameState, who: FormId, amount: f64, by: FormId) {
     gs.coop.live.replaying = true;
@@ -849,7 +861,10 @@ impl LiveGuestAdapter {
         }
         self.realize_spawned(gs, live);
         // damage dealt here is a request; the host resolves it
-        let pending = std::mem::take(&mut gs.coop.live.pending_hits);
+        let pending: Vec<PendingHit> = std::mem::take(&mut gs.coop.live.pending_hits)
+            .into_iter()
+            .filter(|h| guest_sends(gs, &live.actors, h))
+            .collect();
         for (who, amount) in coalesce(pending) {
             if who == PLAYER_REF || puppet_of(self.me) == who {
                 continue;

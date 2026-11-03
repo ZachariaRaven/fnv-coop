@@ -31,6 +31,8 @@ import scenario as scn_mod  # noqa: E402
 import verdict as verdict_mod  # noqa: E402
 
 DEFAULT_CONFIG = os.path.join(HERE, "coop-run.local.json")
+# Seconds the runner waits for each relay to write its ready file.
+RELAY_START_S = 30
 
 
 class ConfigError(Exception):
@@ -183,8 +185,9 @@ def run_scenario(scn, cfg, run_dir, seed=None, scn_path="", cfg_path="", slot=0,
             relay_procs.append(rproc)
             if rproc.launch_error:
                 raise RuntimeError("relay: " + rproc.launch_error)
+        # A loaded machine can take 12 s to start Python (seen in a full suite).
         for i, rproc in enumerate(relay_procs):
-            _wait(lambda: os.path.exists(relay_name(i, "ready")) or not rproc.alive(), 10)
+            _wait(lambda: os.path.exists(relay_name(i, "ready")) or not rproc.alive(), RELAY_START_S)
             if not os.path.exists(relay_name(i, "ready")):
                 raise RuntimeError("relay did not start: " + rproc.tail())
 

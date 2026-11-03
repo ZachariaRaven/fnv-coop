@@ -1,6 +1,6 @@
 {
   "name": "live_kill_xp_attribution",
-  "description": "The guest finishes a gecko that the host brought in. The kill is paid by slot on the host: the guest's own shadow earns the experience, the host player does not (the host never hit it), and it is paid once. In the real game Doc fights the gecko and kills it about 10 s after it arrives, so the guest hits at 6 s and 8 s, after the gecko reaches the guest and before Doc's kill.",
+  "description": "The guest finishes a gecko that the host brought in. The kill is paid by slot on the host: the guest's own shadow earns the experience, the host player does not (the host never hit it), and it is paid once. In the real game Doc fights the gecko, and his knife can kill a 20-point gecko in 2 s. At 2.6 s the host raises the gecko's health to 400 (ForceActorValue, the ledger takes the raise), so Doc cannot kill it first. The guest hits at 6 s and 8 s, and the 8 s hit kills it.",
   "cell": "GSDocMitchellHouse",
   "network": "good_wifi",
   "seed": 61,
@@ -15,6 +15,10 @@
       {
         "at": 2.5,
         "run": "VCG02Gecko1REF.MoveTo DocMitchellREF"
+      },
+      {
+        "at": 2.6,
+        "run": "VCG02Gecko1REF.ForceActorValue Health 400"
       }
     ]
   },

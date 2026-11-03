@@ -353,6 +353,30 @@ mod fighting {
     }
 
     #[test]
+    fn a_guest_copy_of_an_npc_fight_stays_on_the_guest() {
+        let (_d, order) = order("live-npc-copy");
+        let scripts = ScriptCache::default();
+        let mut r = setup(&order, &scripts, "perfect", 23);
+        let gecko = FormId(GECKO_REF);
+        let guard = FormId(GUARD_REF);
+        r.run_ms(2_000);
+        let guard_full = world::combat::health(&order, &r.host, guard).unwrap();
+        // the guest's world runs its copy of a host fight: guard and gecko trade blows
+        world::combat::hurt(&order, &mut r.guests[0], gecko, 5.0, guard);
+        world::combat::hurt(&order, &mut r.guests[0], guard, 5.0, gecko);
+        r.run_ms(3_000);
+        assert_eq!(world::combat::health(&order, &r.host, gecko), Some(20.0));
+        assert_eq!(world::combat::health(&order, &r.host, guard), Some(guard_full));
+        assert_eq!(r.host.coop.live.combat.stats.crimes, 0, "no assault by the guest");
+        // the guest's own blow on the guard still goes, and it is the guest's crime
+        world::combat::hurt(&order, &mut r.guests[0], guard, 5.0, PLAYER_REF);
+        assert!(r.until(10_000, |r| world::combat::health(&order, &r.host, guard)
+            .unwrap()
+            < guard_full));
+        assert_eq!(r.host.coop.live.combat.stats.crimes, 1);
+    }
+
+    #[test]
     fn a_host_hit_goes_through_the_same_ledger() {
         let (_d, order) = order("live-host-kill");
         let scripts = ScriptCache::default();
