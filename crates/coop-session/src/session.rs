@@ -24,6 +24,24 @@ pub const TICK_MS: f64 = 50.0;
 const HASH_EVERY_TICKS: u64 = 10;
 /// Ticks between guest pings.
 const PING_EVERY_TICKS: u64 = 20;
+
+/// A guest's ping in whole milliseconds, at least 1. The clock counts whole
+/// milliseconds, so a pong on a local link can come back in the same one.
+/// The status line uses 0 for "no ping yet" (`rtt_ms.unwrap_or(0)`), so a
+/// measured ping must not read as 0.
+fn ping_ms(sent_ms: u64, now_ms: u64) -> u32 {
+    (now_ms.saturating_sub(sent_ms) as u32).max(1)
+}
+
+#[cfg(test)]
+mod ping_tests {
+    #[test]
+    fn a_ping_in_the_same_millisecond_reads_as_1() {
+        assert_eq!(super::ping_ms(5000, 5000), 1);
+        assert_eq!(super::ping_ms(5000, 5017), 17);
+        assert_eq!(super::ping_ms(5000, 4990), 1, "a clock step back");
+    }
+}
 /// Hash of the replication rules this build speaks (bump with the schema).
 pub const RULES_HASH: u64 = 0x6E76_7273_636F_6F70 ^ PROTOCOL_VERSION as u64;
 /// Silence from the host's state stream before a guest reconnects.
@@ -948,7 +966,7 @@ impl Session {
             Msg::Pong { nonce } => {
                 if let Some((n, t)) = g.ping {
                     if n == *nonce {
-                        g.rtt_ms = Some(now.saturating_sub(t) as u32);
+                        g.rtt_ms = Some(ping_ms(t, now));
                         g.ping = None;
                     }
                 }

@@ -417,6 +417,53 @@ fn a_per_player_quest_variable_reaches_its_owner_and_nobody_else() {
         .any(|f| matches!(f, coop_core::schema::Field::ScriptVar { bits, .. } if *bits != 0)));
 }
 
+/// Each machine runs its own copy of a per-player quest's script, so the script's variables
+/// stay on that machine. Before, the host shared them: the guest's copy of a timer was
+/// overwritten with the host's, and the next guest frame wrote its own value again (a desync).
+#[test]
+fn a_per_player_quest_keeps_its_script_variables_on_each_machine() {
+    let (_d, order) = order("coop-own-quest-var");
+    let scripts = ScriptCache::default();
+    let t = table(r#","scope":"per_player""#);
+    assert!(ShadowPlan::from_policy(&t).quests.contains(&FormId(QUEST)));
+    let mut rig = Rig::new(&order, &scripts, t);
+    let base = {
+        let s = world::scripting::script_of(&order, FormId(QUEST)).expect("quest script");
+        script::interp::Locals::new(&scripts.script(&order, s).expect("script"))
+    };
+    let timer = |gs: &mut GameState, v: f64| {
+        gs.variables.entry(FormId(QUEST)).or_insert(base.clone());
+        assert!(gs
+            .variables
+            .get_mut(&FormId(QUEST))
+            .unwrap()
+            .set("fTimer", v));
+    };
+    timer(&mut rig.host, 10.93);
+    timer(&mut rig.guests[0], 9.93);
+    assert!(rig.settle(), "shared state converges");
+    let var = |gs: &GameState| {
+        gs.variables
+            .get(&FormId(QUEST))
+            .and_then(|l| l.get("fTimer"))
+            .unwrap_or(0.0)
+    };
+    assert_eq!(var(&rig.host), 10.93);
+    assert_eq!(
+        var(&rig.guests[0]),
+        9.93,
+        "the host's timer does not reach the guest"
+    );
+    assert_eq!(var(&rig.guests[1]), 0.0);
+    let q = world::coop::export::cf(FormId(QUEST));
+    assert!(
+        !world::coop::export::export(&rig.host)
+            .iter()
+            .any(|(k, f)| k.form == q && matches!(f, coop_core::schema::Field::ScriptVar { .. })),
+        "the quest's variables are not in the shared rows"
+    );
+}
+
 #[test]
 fn coop_shadow_blob_round_trips() {
     let (_d, order) = order("coop-shadow-codec");

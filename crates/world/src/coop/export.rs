@@ -290,7 +290,9 @@ pub fn export(gs: &GameState) -> Fields {
             },
         );
     }
-    for (owner, locals) in &gs.variables {
+    // a quest that each player runs alone (`own`) keeps its script variables local too: each
+    // machine's copy of the script writes them (a timer reads 10.9 on one and 9.9 on another)
+    for (owner, locals) in gs.variables.iter().filter(|(q, _)| !own(q)) {
         for (i, (name, _, v)) in locals.iter().enumerate() {
             if shadowed_var(owner, name) {
                 continue;
